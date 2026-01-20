@@ -1,0 +1,60 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+docs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Temporary files
+tmp/
+temp/
+
+# Build artifacts
+bin/
+dist/
+build/
+
+# Testing
+*.test
+coverage/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Docker files
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Node modules (if any)
+node_modules/
+
+# Uploads directory (will be mounted as volume)
+uploads/
+
+# Prisma generated files (will be generated in container)
+prisma/dev.db*
+prisma/migrations/

@@ -1,0 +1,80 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-go"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  designs   Design[]
+  @@map("users")
+}
+
+model Design {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  width       Int
+  height      Int
+  data        String   // JSON data for canvas elements
+  thumbnail   String?
+  userId      String
+  templateId  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template Template? @relation(fields: [templateId], references: [id])
+  elements Element[]
+
+  @@map("designs")
+}
+
+model Template {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  category    String
+  preview     String? // Preview image URL
+  data        String   // JSON data for template elements
+  width       Int
+  height      Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  designs Design[]
+
+  @@map("templates")
+}
+
+model Element {
+  id        String   @id @default(cuid())
+  designId  String
+  type      String   // text, shape, image, drawing
+  data      String   // JSON data for element properties
+  x         Float
+  y         Float
+  width     Float
+  height    Float
+  rotation  Float    @default(0)
+  opacity   Float    @default(1)
+  zIndex    Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  design Design @relation(fields: [designId], references: [id], onDelete: Cascade)
+
+  @@map("elements")
+}
