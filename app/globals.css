@@ -27,9 +27,26 @@ body {
 }
 
 .canvas-container {
-  border: 2px solid #e5e7eb;
+  border: 2px solid #e5e7eb !important;
   border-radius: 8px;
   overflow: hidden;
+  background: white;
+  box-sizing: border-box;
+}
+
+/* Ensure no black borders appear */
+.canvas-container:focus,
+.canvas-container:focus-within,
+.canvas-container:focus-visible,
+.canvas-container:active {
+  outline: none !important;
+  border-color: #e5e7eb !important;
+  box-shadow: none !important;
+}
+
+/* Prevent any element from having black borders */
+.canvas-container * {
+  border-color: inherit !important;
 }
 
 .design-element {
@@ -44,6 +61,7 @@ body {
 .design-element.selected {
   outline: 2px solid #3b82f6;
   outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .toolbar {

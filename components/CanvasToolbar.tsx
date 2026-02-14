@@ -11,14 +11,23 @@ import {
 } from 'lucide-react'
 import { useCanvasStore, DesignElement } from '../store/canvas-store'
 import { exportAsPNG, exportAsJPG, exportAsPDF } from '../utils/exportUtils'
+import AlignmentTools from './AlignmentTools'
 
 export default function CanvasToolbar() {
   const [selectedColor, setSelectedColor] = useState('#000000')
   const [selectedSize, setSelectedSize] = useState(16)
   const [showExportMenu, setShowExportMenu] = useState(false)
-  const { selectedElement, updateElement, elements, addElement } = useCanvasStore()
+  const { 
+    selectedElement, 
+    updateElement, 
+    pages, 
+    currentPageId, 
+    addElement 
+  } = useCanvasStore()
 
-  const selectedElementData = elements.find(el => el.id === selectedElement)
+  const currentPage = pages.find(page => page.id === currentPageId)
+  const currentPageElements = currentPage?.elements || []
+  const selectedElementData = currentPageElements.find(el => el.id === selectedElement)
 
   const handleColorChange = (color: string) => {
     setSelectedColor(color)
@@ -75,6 +84,9 @@ export default function CanvasToolbar() {
     <div className="h-12 bg-white border-b border-gray-200 flex items-center justify-between px-4">
       {/* Left Section - Text Tools */}
       <div className="flex items-center gap-2">
+        {/* Alignment Tools */}
+        <AlignmentTools />
+        
         {/* Text Controls - Only show when text is selected */}
         {selectedElementData && selectedElementData.type === 'text' && (
           <>

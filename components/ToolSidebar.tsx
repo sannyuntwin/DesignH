@@ -8,7 +8,8 @@ import { Type, Image, Download, FileImage, FileText, Trash2, ArrowUp, ArrowDown,
 export default function ToolSidebar() {
   const [isExporting, setIsExporting] = useState(false)
   const {
-    elements,
+    pages,
+    currentPageId,
     selectedElement,
     addElement,
     updateElement,
@@ -17,7 +18,9 @@ export default function ToolSidebar() {
     sendToBack,
   } = useCanvasStore()
 
-  const selectedElementData = elements.find(el => el.id === selectedElement)
+  const currentPage = pages.find(page => page.id === currentPageId)
+  const currentPageElements = currentPage?.elements || []
+  const selectedElementData = currentPageElements.find(el => el.id === selectedElement)
 
   const addTextElement = () => {
     addElement({
@@ -298,9 +301,9 @@ export default function ToolSidebar() {
             Layers
           </h3>
           <div className="space-y-1">
-            {elements
-              .sort((a, b) => b.zIndex - a.zIndex)
-              .map((element) => (
+            {currentPageElements
+              .sort((a: DesignElement, b: DesignElement) => b.zIndex - a.zIndex)
+              .map((element: DesignElement) => (
                 <div
                   key={element.id}
                   onClick={() => useCanvasStore.getState().selectElement(element.id)}
