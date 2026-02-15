@@ -1,6 +1,37 @@
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
 
+const getExportOptions = () => ({
+  backgroundColor: null, // Respect design background
+  scale: 4, // Higher quality for print (300 DPI approx)
+  logging: false,
+  useCORS: true,
+  allowTaint: true,
+  onclone: (clonedDoc: Document) => {
+    // Hide all elements with the 'no-export' class
+    const noExportElements = clonedDoc.querySelectorAll('.no-export')
+    noExportElements.forEach(el => {
+      if (el instanceof HTMLElement) {
+        el.style.display = 'none'
+      }
+    })
+
+    // Reset transform on the cloned element to ensure correct export layout
+    const clonedCanvas = clonedDoc.getElementById('design-canvas')
+    if (clonedCanvas) {
+      clonedCanvas.style.transform = 'none'
+      clonedCanvas.style.border = 'none'
+      clonedCanvas.style.boxShadow = 'none'
+      clonedCanvas.style.margin = '0'
+      clonedCanvas.style.padding = '0'
+      clonedCanvas.style.left = '0'
+      clonedCanvas.style.top = '0'
+      clonedCanvas.style.position = 'relative'
+    }
+  }
+})
+
+
 export const exportAsPNG = async (elementId: string, filename: string = 'design') => {
   const element = document.getElementById(elementId)
   if (!element) {
@@ -8,12 +39,7 @@ export const exportAsPNG = async (elementId: string, filename: string = 'design'
   }
 
   try {
-    const canvas = await html2canvas(element, {
-      backgroundColor: '#ffffff',
-      scale: 2, // Higher quality
-      logging: false,
-      useCORS: true,
-    })
+    const canvas = await html2canvas(element, getExportOptions())
 
     const link = document.createElement('a')
     link.download = `${filename}.png`
@@ -32,12 +58,7 @@ export const exportAsJPG = async (elementId: string, filename: string = 'design'
   }
 
   try {
-    const canvas = await html2canvas(element, {
-      backgroundColor: '#ffffff',
-      scale: 2, // Higher quality
-      logging: false,
-      useCORS: true,
-    })
+    const canvas = await html2canvas(element, getExportOptions())
 
     const link = document.createElement('a')
     link.download = `${filename}.jpg`
@@ -56,12 +77,7 @@ export const exportAsPDF = async (elementId: string, filename: string = 'design'
   }
 
   try {
-    const canvas = await html2canvas(element, {
-      backgroundColor: '#ffffff',
-      scale: 2, // Higher quality
-      logging: false,
-      useCORS: true,
-    })
+    const canvas = await html2canvas(element, getExportOptions())
 
     const imgData = canvas.toDataURL('image/png')
     const pdf = new jsPDF({

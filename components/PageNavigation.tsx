@@ -1,11 +1,11 @@
 'use client'
 
 import React, { useState } from 'react'
-import { 
-  Plus, 
-  Trash2, 
-  Copy, 
-  ChevronLeft, 
+import {
+  Plus,
+  Trash2,
+  Copy,
+  ChevronLeft,
   ChevronRight,
   Edit3,
   Check,
@@ -14,16 +14,16 @@ import {
 import { useCanvasStore } from '../store/canvas-store'
 
 export default function PageNavigation() {
-  const { 
-    pages, 
-    currentPageId, 
-    setCurrentPage, 
-    addPage, 
-    deletePage, 
-    duplicatePage, 
-    updatePageName 
+  const {
+    pages,
+    currentPageId,
+    setCurrentPage,
+    addPage,
+    deletePage,
+    duplicatePage,
+    updatePageName
   } = useCanvasStore()
-  
+
   const [editingPageId, setEditingPageId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
 
@@ -74,19 +74,19 @@ export default function PageNavigation() {
   }
 
   return (
-    <div className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4">
+    <div className="h-16 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4 transition-colors">
       {/* Left Section - Page Navigation */}
       <div className="flex items-center gap-3">
         <button
           onClick={goToPreviousPage}
           disabled={currentPageIndex <= 0}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-gray-700 dark:text-gray-300"
         >
           <ChevronLeft size={16} />
         </button>
 
         <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">
+          <span className="text-sm text-gray-600 dark:text-gray-400">
             {currentPageIndex + 1} / {pages.length}
           </span>
         </div>
@@ -94,7 +94,7 @@ export default function PageNavigation() {
         <button
           onClick={goToNextPage}
           disabled={currentPageIndex >= pages.length - 1}
-          className="p-2 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-gray-700 dark:text-gray-300"
         >
           <ChevronRight size={16} />
         </button>
@@ -106,11 +106,10 @@ export default function PageNavigation() {
           {pages.map((page, index) => (
             <div
               key={page.id}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
-                page.id === currentPageId
-                  ? 'bg-blue-100 text-blue-700'
-                  : 'hover:bg-gray-100 text-gray-700'
-              }`}
+              className={`flex items-center gap-1 px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${page.id === currentPageId
+                  ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400'
+                  : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+                }`}
               onClick={() => setCurrentPage(page.id)}
             >
               {editingPageId === page.id ? (
@@ -120,7 +119,7 @@ export default function PageNavigation() {
                     value={editingName}
                     onChange={(e) => setEditingName(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    className="px-1 py-0.5 text-sm border border-gray-300 rounded focus:outline-none focus:border-blue-500"
+                    className="px-1 py-0.5 text-sm border border-gray-300 dark:border-gray-600 rounded focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
                     onClick={(e) => e.stopPropagation()}
                   />
                   <button
@@ -152,7 +151,7 @@ export default function PageNavigation() {
                       e.stopPropagation()
                       handleStartEdit(page.id, page.name)
                     }}
-                    className="p-0.5 hover:bg-gray-200 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="p-0.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded opacity-0 group-hover:opacity-100 transition-opacity"
                   >
                     <Edit3 size={10} />
                   </button>
@@ -177,7 +176,7 @@ export default function PageNavigation() {
           <>
             <button
               onClick={() => duplicatePage(currentPage.id)}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors text-gray-700 dark:text-gray-300"
               title="Duplicate page"
             >
               <Copy size={14} />

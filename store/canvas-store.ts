@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 export interface DesignElement {
   id: string
-  type: 'text' | 'image'
+  type: 'text' | 'image' | 'circle' | 'square' | 'rectangle' | 'triangle' | 'star' | 'heart'
   x: number
   y: number
   width: number
@@ -12,9 +12,32 @@ export interface DesignElement {
   src?: string
   fontSize?: number
   fontFamily?: string
+  fontWeight?: string
+  fontStyle?: string
+  textAlign?: 'left' | 'center' | 'right'
+  verticalAlign?: 'top' | 'middle' | 'bottom'
   color?: string
-  rotation?: number
+  backgroundColor?: string
+  gradient?: {
+    colors: string[]
+    direction: 'horizontal' | 'vertical' | 'diagonal'
+  }
   zIndex: number
+  rotation?: number
+  opacity?: number
+  // Text spacing properties
+  lineHeight?: number
+  letterSpacing?: number
+  wordSpacing?: number
+  textIndent?: number
+  marginTop?: number
+  marginBottom?: number
+  marginLeft?: number
+  marginRight?: number
+  paddingTop?: number
+  paddingBottom?: number
+  paddingLeft?: number
+  paddingRight?: number
 }
 
 export interface Page {
@@ -29,47 +52,63 @@ interface CanvasStore {
   pages: Page[]
   currentPageId: string | null
   selectedElement: string | null
-  
+
   // History for undo/redo
   history: Page[][]
   historyIndex: number
-  
+
+  // Zoom controls
+  zoomLevel: number
+  panOffset: { x: number; y: number }
+
   // Page management actions
   addPage: (name?: string) => void
   deletePage: (id: string) => void
   duplicatePage: (id: string) => void
   setCurrentPage: (id: string) => void
   updatePageName: (id: string, name: string) => void
-  
+
   // Element actions (operate on current page)
   addElement: (element: Omit<DesignElement, 'id' | 'zIndex'>) => void
   updateElement: (id: string, updates: Partial<DesignElement>) => void
   deleteElement: (id: string) => void
   selectElement: (id: string | null) => void
-  moveElement: (id: string, x: number, y: number) => void
+  moveElement: (id: string, deltaX: number, deltaY: number) => void
   resizeElement: (id: string, width: number, height: number) => void
   clearCanvas: () => void
   setCanvasSize: (width: number, height: number) => void
   bringToFront: (id: string) => void
   sendToBack: (id: string) => void
-  
+
+  // Zoom actions
+  setZoomLevel: (zoom: number) => void
+  zoomIn: () => void
+  zoomOut: () => void
+  resetZoom: () => void
+  setPanOffset: (x: number, y: number) => void
+  panTo: (x: number, y: number) => void
+
   // Undo/redo actions
   undo: () => void
   redo: () => void
   saveToHistory: () => void
-  
+
   // Load/save actions
   loadState: (state: Partial<CanvasStore>) => void
+
+  // Custom fonts loaded at runtime
+  customFonts: string[]
+  addCustomFont: (fontFamily: string) => void
 }
 
 export const useCanvasStore = create<CanvasStore>((set, get) => {
-  // Create initial page
+  // Create initial page with A4 size (210mm x 297mm at 96 DPI = 794px x 1123px)
   const initialPage: Page = {
     id: uuidv4(),
     name: 'Page 1',
     elements: [],
-    canvasWidth: 800,
-    canvasHeight: 600,
+    canvasWidth: 794,
+    canvasHeight: 1123,
   }
 
   return {
@@ -78,6 +117,17 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
     selectedElement: null,
     history: [JSON.parse(JSON.stringify([initialPage]))],
     historyIndex: 0,
+    zoomLevel: 1,
+    panOffset: { x: 0, y: 0 },
+    customFonts: [],
+
+    addCustomFont: (fontFamily) => {
+      set((state) => ({
+        customFonts: state.customFonts.includes(fontFamily)
+          ? state.customFonts
+          : [...state.customFonts, fontFamily]
+      }))
+    },
 
     // Page management actions
     addPage: (name = `Page ${get().pages.length + 1}`) => {
@@ -85,10 +135,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
         id: uuidv4(),
         name,
         elements: [],
-        canvasWidth: 800,
-        canvasHeight: 600,
+        canvasWidth: 794, // A4 width at 96 DPI
+        canvasHeight: 1123, // A4 height at 96 DPI
       }
-      
+
       set((state) => ({
         pages: [...state.pages, newPage],
         currentPageId: newPage.id,
@@ -99,10 +149,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
     deletePage: (id) => {
       const { pages, currentPageId } = get()
       if (pages.length <= 1) return // Can't delete last page
-      
+
       const newPages = pages.filter(page => page.id !== id)
       const newCurrentPageId = currentPageId === id ? newPages[0].id : currentPageId
-      
+
       set({
         pages: newPages,
         currentPageId: newCurrentPageId,
@@ -149,16 +199,21 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
 
     // Element actions (operate on current page)
     addElement: (element) => {
-      const { currentPageId } = get()
+      const { currentPageId, saveToHistory } = get()
       if (!currentPageId) return
+
+      // Save state before adding element
+      saveToHistory()
 
       const currentPage = get().pages.find(page => page.id === currentPageId)
       if (!currentPage) return
 
+      const maxZIndex = Math.max(0, ...currentPage.elements.map(e => e.zIndex))
+
       const newElement: DesignElement = {
         ...element,
         id: uuidv4(),
-        zIndex: Math.max(...currentPage.elements.map(e => e.zIndex), 0) + 1,
+        zIndex: maxZIndex + 1,
       }
 
       set((state) => ({
@@ -172,8 +227,13 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
     },
 
     updateElement: (id, updates) => {
-      const { currentPageId } = get()
+      const { currentPageId, saveToHistory } = get()
       if (!currentPageId) return
+
+      // Save state before major changes
+      if (Object.keys(updates).length > 0) {
+        saveToHistory()
+      }
 
       set((state) => ({
         pages: state.pages.map(page =>
@@ -190,8 +250,11 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
     },
 
     deleteElement: (id) => {
-      const { currentPageId, selectedElement } = get()
+      const { currentPageId, selectedElement, saveToHistory } = get()
       if (!currentPageId) return
+
+      // Save state before deletion
+      saveToHistory()
 
       set((state) => ({
         pages: state.pages.map(page =>
@@ -207,37 +270,43 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
       set({ selectedElement: id })
     },
 
-    moveElement: (id, x, y) => {
+    moveElement: (id, deltaX, deltaY) => {
       const { currentPageId } = get()
       if (!currentPageId) return
 
-      set((state) => ({
-        pages: state.pages.map(page =>
+      set((state) => {
+        const updatedPages = state.pages.map(page =>
           page.id === currentPageId
             ? {
                 ...page,
                 elements: page.elements.map(el =>
-                  el.id === id ? { ...el, x, y } : el
+                  el.id === id 
+                    ? { ...el, x: el.x + deltaX, y: el.y + deltaY } 
+                    : el
                 ),
               }
             : page
-        ),
-      }))
+        )
+        return { pages: updatedPages }
+      })
     },
 
     resizeElement: (id, width, height) => {
-      const { currentPageId } = get()
+      const { currentPageId, saveToHistory } = get()
       if (!currentPageId) return
+
+      // Save state before resizing
+      saveToHistory()
 
       set((state) => ({
         pages: state.pages.map(page =>
           page.id === currentPageId
             ? {
-                ...page,
-                elements: page.elements.map(el =>
-                  el.id === id ? { ...el, width, height } : el
-                ),
-              }
+              ...page,
+              elements: page.elements.map(el =>
+                el.id === id ? { ...el, width, height } : el
+              ),
+            }
             : page
         ),
       }))
@@ -283,11 +352,11 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
         pages: state.pages.map(page =>
           page.id === currentPageId
             ? {
-                ...page,
-                elements: page.elements.map(el =>
-                  el.id === id ? { ...el, zIndex: maxZIndex + 1 } : el
-                ),
-              }
+              ...page,
+              elements: page.elements.map(el =>
+                el.id === id ? { ...el, zIndex: maxZIndex + 1 } : el
+              ),
+            }
             : page
         ),
       }))
@@ -306,11 +375,11 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
         pages: state.pages.map(page =>
           page.id === currentPageId
             ? {
-                ...page,
-                elements: page.elements.map(el =>
-                  el.id === id ? { ...el, zIndex: minZIndex - 1 } : el
-                ),
-              }
+              ...page,
+              elements: page.elements.map(el =>
+                el.id === id ? { ...el, zIndex: minZIndex - 1 } : el
+              ),
+            }
             : page
         ),
       }))
@@ -321,12 +390,12 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
       const { pages, history, historyIndex } = get()
       const newHistory = history.slice(0, historyIndex + 1)
       newHistory.push(JSON.parse(JSON.stringify(pages)))
-      
+
       // Keep only last 50 states to prevent memory issues
       if (newHistory.length > 50) {
         newHistory.shift()
       }
-      
+
       set({
         history: newHistory,
         historyIndex: newHistory.length - 1,
@@ -342,6 +411,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
           historyIndex: historyIndex - 1,
           selectedElement: null,
         })
+        // Visual feedback
+        console.log('Undo: Restored previous state')
       }
     },
 
@@ -354,12 +425,45 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
           historyIndex: historyIndex + 1,
           selectedElement: null,
         })
+        // Visual feedback
+        console.log('Redo: Restored next state')
       }
     },
 
     // Load/save actions
     loadState: (state) => {
       set(state)
+    },
+
+    // Zoom actions
+    setZoomLevel: (zoom) => {
+      set({ zoomLevel: Math.max(0.1, Math.min(5, zoom)) })
+    },
+
+    zoomIn: () => {
+      set((state) => ({
+        zoomLevel: Math.min(5, state.zoomLevel + 0.1)
+      }))
+    },
+
+    zoomOut: () => {
+      set((state) => ({
+        zoomLevel: Math.max(0.1, state.zoomLevel - 0.1)
+      }))
+    },
+
+    resetZoom: () => {
+      set({ zoomLevel: 1, panOffset: { x: 0, y: 0 } })
+    },
+
+    setPanOffset: (x, y) => {
+      set({ panOffset: { x, y } })
+    },
+
+    panTo: (x, y) => {
+      set((state) => ({
+        panOffset: { x: state.panOffset.x + x, y: state.panOffset.y + y }
+      }))
     },
   }
 })

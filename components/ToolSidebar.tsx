@@ -1,335 +1,190 @@
 'use client'
 
 import React, { useState } from 'react'
+import { Palette } from 'lucide-react'
 import { useCanvasStore, DesignElement } from '../store/canvas-store'
-import { exportAsPNG, exportAsJPG, exportAsPDF } from '../utils/exportUtils'
-import { Type, Image, Download, FileImage, FileText, Trash2, ArrowUp, ArrowDown, Layers } from 'lucide-react'
+import FontStylePanel from './FontStylePanel'
+import ShapePropertiesPanel from './ShapePropertiesPanel'
+import BackendTestPanel from './BackendTestPanel'
+import OpacityControl from './OpacityControl'
 
 export default function ToolSidebar() {
-  const [isExporting, setIsExporting] = useState(false)
-  const {
-    pages,
-    currentPageId,
-    selectedElement,
-    addElement,
-    updateElement,
-    deleteElement,
-    bringToFront,
-    sendToBack,
-  } = useCanvasStore()
+  const { pages, currentPageId, selectedElement, updateElement, deleteElement } = useCanvasStore()
+  const [activeTab, setActiveTab] = useState<'properties' | 'fonts' | 'backend'>('properties')
 
   const currentPage = pages.find(page => page.id === currentPageId)
-  const currentPageElements = currentPage?.elements || []
-  const selectedElementData = currentPageElements.find(el => el.id === selectedElement)
+  const currentElement = currentPage?.elements.find(el => el.id === selectedElement)
 
-  const addTextElement = () => {
-    addElement({
-      type: 'text',
-      x: 100,
-      y: 100,
-      width: 200,
-      height: 50,
-      content: 'Edit this text',
-      fontSize: 16,
-      fontFamily: 'Arial',
-      color: '#000000',
-    })
-  }
-
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) {
-      const reader = new FileReader()
-      reader.onload = (event) => {
-        const src = event.target?.result as string
-        addElement({
-          type: 'image',
-          x: 100,
-          y: 100,
-          width: 200,
-          height: 200,
-          src,
-        })
-      }
-      reader.readAsDataURL(file)
-    }
-  }
-
-  const updateSelectedElement = (updates: Partial<DesignElement>) => {
+  const handleUpdate = (updates: Partial<DesignElement>) => {
     if (selectedElement) {
       updateElement(selectedElement, updates)
     }
   }
 
-  const handleExport = async (format: 'png' | 'jpg' | 'pdf') => {
-    if (isExporting) return
-    
-    setIsExporting(true)
-    try {
-      const timestamp = new Date().toISOString().slice(0, 19).replace(/[:]/g, '-')
-      const filename = `design-${timestamp}`
-      
-      switch (format) {
-        case 'png':
-          await exportAsPNG('design-canvas', filename)
-          break
-        case 'jpg':
-          await exportAsJPG('design-canvas', filename)
-          break
-        case 'pdf':
-          await exportAsPDF('design-canvas', filename)
-          break
-      }
-    } catch (error) {
-      console.error('Export failed:', error)
-      alert('Export failed. Please try again.')
-    } finally {
-      setIsExporting(false)
+  const handleDelete = () => {
+    if (selectedElement) {
+      deleteElement(selectedElement)
     }
   }
 
   return (
-    <div className="w-80 bg-white border-r border-gray-200 h-full overflow-y-auto">
-      <div className="p-4 space-y-6">
-        {/* Add Elements Section */}
-        <div>
-          <h3 className="text-lg font-semibold mb-3 text-gray-800">Add Elements</h3>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={addTextElement}
-              className="flex flex-col items-center justify-center p-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
-            >
-              <Type size={24} />
-              <span className="text-xs mt-1">Text</span>
-            </button>
-            <label className="flex flex-col items-center justify-center p-4 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors cursor-pointer">
-              <Image size={24} />
-              <span className="text-xs mt-1">Image</span>
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImageUpload}
-                className="hidden"
-              />
-            </label>
-          </div>
-        </div>
+    <div className="h-full flex flex-col bg-transparent text-gray-900 dark:text-gray-100 transition-colors">
+      {/* Tab Navigation */}
+      <div className="flex p-2 bg-gray-50/50 dark:bg-gray-900/50 border-b border-gray-200/50 dark:border-gray-800/50">
+        <button
+          onClick={() => setActiveTab('properties')}
+          className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-all duration-200 ${activeTab === 'properties'
+            ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+            : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+            }`}
+        >
+          Properties
+        </button>
+        <button
+          onClick={() => setActiveTab('fonts')}
+          className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-all duration-200 ${activeTab === 'fonts'
+            ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+            : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+            }`}
+        >
+          Fonts
+        </button>
+        <button
+          onClick={() => setActiveTab('backend')}
+          className={`flex-1 py-2 text-[10px] font-bold uppercase tracking-widest rounded-xl transition-all duration-200 ${activeTab === 'backend'
+            ? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+            : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+            }`}
+        >
+          Backend
+        </button>
+      </div>
 
-        {/* Export Section */}
-        <div>
-          <h3 className="text-lg font-semibold mb-3 text-gray-800">Export Design</h3>
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              onClick={() => handleExport('png')}
-              disabled={isExporting}
-              className="flex flex-col items-center justify-center p-3 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
-            >
-              <FileImage size={20} />
-              <span className="text-xs mt-1">PNG</span>
-            </button>
-            <button
-              onClick={() => handleExport('jpg')}
-              disabled={isExporting}
-              className="flex flex-col items-center justify-center p-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
-            >
-              <FileImage size={20} />
-              <span className="text-xs mt-1">JPG</span>
-            </button>
-            <button
-              onClick={() => handleExport('pdf')}
-              disabled={isExporting}
-              className="flex flex-col items-center justify-center p-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
-            >
-              <FileText size={20} />
-              <span className="text-xs mt-1">PDF</span>
-            </button>
-          </div>
-        </div>
+      {/* Tab Content */}
+      <div className="flex-1 overflow-y-auto">
+        {activeTab === 'properties' && (
+          <div className="p-4 space-y-4">
+            <h3 className="font-semibold text-lg">Properties</h3>
 
-        {/* Element Properties Section */}
-        {selectedElementData && (
-          <div>
-            <h3 className="text-lg font-semibold mb-3 text-gray-800">Element Properties</h3>
-            <div className="space-y-4">
-              {/* Position */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Position</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs text-gray-500">X</label>
-                    <input
-                      type="number"
-                      value={selectedElementData.x}
-                      onChange={(e) => updateSelectedElement({ x: parseInt(e.target.value) || 0 })}
-                      className="w-full px-2 py-1 border border-gray-300 rounded"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500">Y</label>
-                    <input
-                      type="number"
-                      value={selectedElementData.y}
-                      onChange={(e) => updateSelectedElement({ y: parseInt(e.target.value) || 0 })}
-                      className="w-full px-2 py-1 border border-gray-300 rounded"
-                    />
+            {currentElement ? (
+              <>
+                {/* Position */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Position
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-widest font-bold text-gray-500 dark:text-gray-400 mb-1">X</label>
+                      <input
+                        type="number"
+                        value={currentElement.x}
+                        onChange={(e) => handleUpdate({ x: Number(e.target.value) })}
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-800 rounded-xl text-xs focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 outline-none transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-widest font-bold text-gray-500 dark:text-gray-400 mb-1">Y</label>
+                      <input
+                        type="number"
+                        value={currentElement.y}
+                        onChange={(e) => handleUpdate({ y: Number(e.target.value) })}
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-800 rounded-xl text-xs focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 outline-none transition-all"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Size */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Size</label>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs text-gray-500">Width</label>
-                    <input
-                      type="number"
-                      value={selectedElementData.width}
-                      onChange={(e) => updateSelectedElement({ width: parseInt(e.target.value) || 100 })}
-                      className="w-full px-2 py-1 border border-gray-300 rounded"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-gray-500">Height</label>
-                    <input
-                      type="number"
-                      value={selectedElementData.height}
-                      onChange={(e) => updateSelectedElement({ height: parseInt(e.target.value) || 100 })}
-                      className="w-full px-2 py-1 border border-gray-300 rounded"
-                    />
+                {/* Size */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Size
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-widest font-bold text-gray-600 dark:text-gray-400 mb-1">Width</label>
+                      <input
+                        type="number"
+                        value={currentElement.width}
+                        onChange={(e) => handleUpdate({ width: Number(e.target.value) })}
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-800 rounded-xl text-xs focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 outline-none transition-all"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] uppercase tracking-widest font-bold text-gray-600 dark:text-gray-400 mb-1">Height</label>
+                      <input
+                        type="number"
+                        value={currentElement.height}
+                        onChange={(e) => handleUpdate({ height: Number(e.target.value) })}
+                        className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-800 rounded-xl text-xs focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 outline-none transition-all"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Rotation */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Rotation</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="360"
-                  value={selectedElementData.rotation || 0}
-                  onChange={(e) => updateSelectedElement({ rotation: parseInt(e.target.value) })}
-                  className="w-full"
+                {/* Rotation */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Rotation: {currentElement.rotation || 0}°
+                  </label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="360"
+                    value={currentElement.rotation || 0}
+                    onChange={(e) => handleUpdate({ rotation: Number(e.target.value) })}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Z-Index */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Layer (Z-Index)
+                  </label>
+                  <input
+                    type="number"
+                    value={currentElement.zIndex}
+                    onChange={(e) => handleUpdate({ zIndex: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-gray-50 dark:bg-gray-900/50 border border-gray-200 dark:border-gray-800 rounded-xl text-xs focus:ring-2 focus:ring-blue-500/40 focus:border-blue-500 outline-none transition-all"
+                  />
+                </div>
+
+                {/* Opacity Control */}
+                <OpacityControl
+                  opacity={currentElement.opacity ?? 1}
+                  onChange={(opacity) => handleUpdate({ opacity })}
                 />
-                <div className="text-xs text-gray-500 text-center">{selectedElementData.rotation || 0}°</div>
+
+                {/* Actions */}
+                <div className="pt-6 border-t border-gray-100 dark:border-gray-800">
+                  <button
+                    onClick={handleDelete}
+                    className="w-full px-4 py-3 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 font-bold text-xs uppercase tracking-widest rounded-xl hover:bg-red-500 hover:text-white transition-all duration-200 active:scale-95 shadow-sm"
+                  >
+                    Delete Element
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-64 text-center px-6">
+                <div className="w-12 h-12 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4">
+                  <Palette className="text-gray-400 dark:text-gray-600" size={24} />
+                </div>
+                <p className="text-gray-600 dark:text-gray-400 text-sm font-medium">Select an element to edit its properties</p>
               </div>
-
-              {/* Text-specific properties */}
-              {selectedElementData.type === 'text' && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Text Content</label>
-                    <textarea
-                      value={selectedElementData.content || ''}
-                      onChange={(e) => updateSelectedElement({ content: e.target.value })}
-                      className="w-full px-2 py-1 border border-gray-300 rounded resize-none"
-                      rows={3}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Font Size</label>
-                    <input
-                      type="number"
-                      value={selectedElementData.fontSize || 16}
-                      onChange={(e) => updateSelectedElement({ fontSize: parseInt(e.target.value) || 16 })}
-                      className="w-full px-2 py-1 border border-gray-300 rounded"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Font Family</label>
-                    <select
-                      value={selectedElementData.fontFamily || 'Arial'}
-                      onChange={(e) => updateSelectedElement({ fontFamily: e.target.value })}
-                      className="w-full px-2 py-1 border border-gray-300 rounded"
-                    >
-                      <option value="Arial">Arial</option>
-                      <option value="Times New Roman">Times New Roman</option>
-                      <option value="Courier New">Courier New</option>
-                      <option value="Georgia">Georgia</option>
-                      <option value="Verdana">Verdana</option>
-                      <option value="Comic Sans MS">Comic Sans MS</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Color</label>
-                    <input
-                      type="color"
-                      value={selectedElementData.color || '#000000'}
-                      onChange={(e) => updateSelectedElement({ color: e.target.value })}
-                      className="w-full h-10 border border-gray-300 rounded cursor-pointer"
-                    />
-                  </div>
-                </>
-              )}
-
-              {/* Actions */}
-              <div className="space-y-2">
-                <button
-                  onClick={() => selectedElement && bringToFront(selectedElement)}
-                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
-                >
-                  <ArrowUp size={16} />
-                  Bring to Front
-                </button>
-                <button
-                  onClick={() => selectedElement && sendToBack(selectedElement)}
-                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors text-sm"
-                >
-                  <ArrowDown size={16} />
-                  Send to Back
-                </button>
-                <button
-                  onClick={() => selectedElement && deleteElement(selectedElement)}
-                  className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm"
-                >
-                  <Trash2 size={16} />
-                  Delete Element
-                </button>
-              </div>
-            </div>
+            )}
           </div>
         )}
 
-        {/* Elements List */}
-        <div>
-          <h3 className="text-lg font-semibold mb-3 text-gray-800 flex items-center gap-2">
-            <Layers size={20} />
-            Layers
-          </h3>
-          <div className="space-y-1">
-            {currentPageElements
-              .sort((a: DesignElement, b: DesignElement) => b.zIndex - a.zIndex)
-              .map((element: DesignElement) => (
-                <div
-                  key={element.id}
-                  onClick={() => useCanvasStore.getState().selectElement(element.id)}
-                  className={`p-2 rounded-lg cursor-pointer text-sm flex items-center justify-between ${
-                    selectedElement === element.id
-                      ? 'bg-blue-100 border-blue-300 border'
-                      : 'bg-gray-50 hover:bg-gray-100'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    {element.type === 'text' ? (
-                      <Type size={14} />
-                    ) : (
-                      <Image size={14} />
-                    )}
-                    <span className="truncate">
-                      {element.type === 'text' 
-                        ? (element.content?.substring(0, 15) || 'Text') 
-                        : 'Image'
-                      }
-                    </span>
-                  </div>
-                </div>
-              ))}
-          </div>
-        </div>
+        {activeTab === 'fonts' && <FontStylePanel />}
+        
+        {activeTab === 'backend' && <BackendTestPanel />}
+        
+        {/* Shape Properties Panel - Show when shape is selected */}
+        {currentElement && ['circle', 'square', 'rectangle', 'triangle'].includes(currentElement.type) && (
+          <ShapePropertiesPanel />
+        )}
       </div>
     </div>
   )

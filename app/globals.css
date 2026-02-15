@@ -3,50 +3,52 @@
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
+  --foreground-rgb: 30, 41, 59;
+  --background-start-rgb: 241, 245, 249;
   --background-end-rgb: 255, 255, 255;
+
+  /* Premium Elevation Shadows */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+
+  /* Glassmorphism Surface */
+  --glass-bg: rgba(255, 255, 255, 0.85);
+  --glass-border: rgba(0, 0, 0, 0.08);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --foreground-rgb: 255, 255, 255;
-    --background-start-rgb: 0, 0, 0;
-    --background-end-rgb: 0, 0, 0;
-  }
+.dark {
+  --foreground-rgb: 241, 245, 249;
+  --background-start-rgb: 15, 23, 42;
+  --background-end-rgb: 2, 6, 23;
+
+  --glass-bg: rgba(15, 23, 42, 0.8);
+  --glass-border: rgba(255, 255, 255, 0.1);
 }
 
 body {
   color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+  background: rgb(var(--background-start-rgb));
+  transition: background-color 0.3s ease, color 0.3s ease;
+  min-height: 100vh;
 }
 
-.canvas-container {
-  border: 2px solid #e5e7eb !important;
-  border-radius: 8px;
-  overflow: hidden;
-  background: white;
-  box-sizing: border-box;
+.canvas-workspace-grid {
+  background-image: radial-gradient(circle, currentColor 1px, transparent 1px);
+  background-size: 20px 20px;
+  color: rgba(0, 0, 0, 0.05);
 }
 
-/* Ensure no black borders appear */
-.canvas-container:focus,
-.canvas-container:focus-within,
-.canvas-container:focus-visible,
-.canvas-container:active {
-  outline: none !important;
-  border-color: #e5e7eb !important;
-  box-shadow: none !important;
+.dark .canvas-workspace-grid {
+  color: rgba(255, 255, 255, 0.05);
 }
 
-/* Prevent any element from having black borders */
-.canvas-container * {
-  border-color: inherit !important;
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
 }
 
 .design-element {
@@ -61,10 +63,5 @@ body {
 .design-element.selected {
   outline: 2px solid #3b82f6;
   outline-offset: 2px;
-  border-radius: 4px;
-}
-
-.toolbar {
-  background: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
 }

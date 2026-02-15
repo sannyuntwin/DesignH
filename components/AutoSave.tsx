@@ -3,110 +3,156 @@
 import { useEffect, useRef } from 'react'
 import { useCanvasStore } from '../store/canvas-store'
 import { useThrottle } from '../hooks/usePerformance'
+import { saveDesignToDB, getDesignFromDB, removeDesignFromDB } from '../utils/storageUtils'
+import { supabase } from '../utils/supabase'
+
+const AUTOSAVE_KEY = 'design-editor-autosave'
+const CLOUD_DESIGN_ID = 'last-design'
 
 export default function AutoSave() {
-  const saveTimeoutRef = useRef<NodeJS.Timeout>()
   const lastSaveRef = useRef<string>('')
+  const syncTimeoutRef = useRef<NodeJS.Timeout>()
 
   const { pages, currentPageId, saveToHistory } = useCanvasStore()
 
+  // Cloud Sync Function
+  const syncToCloud = async (data: any) => {
+    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL === 'your_supabase_project_url') {
+      return
+    }
+
+    try {
+      const { error } = await supabase
+        .from('designs')
+        .upsert({
+          id: CLOUD_DESIGN_ID,
+          content: data,
+          updated_at: new Date().toISOString()
+        })
+
+      if (error) throw error
+      console.log('Synced to cloud successfully')
+    } catch (error) {
+      console.warn('Cloud sync failed:', error)
+    }
+  }
+
   // Throttled save function to prevent excessive saves
-  const throttledSave = useThrottle(() => {
+  const throttledSave = useThrottle(async () => {
     const dataToSave = {
       pages,
       currentPageId,
       timestamp: new Date().toISOString(),
     }
-    
+
     const dataString = JSON.stringify(dataToSave)
-    
+
     // Only save if data has actually changed
     if (dataString !== lastSaveRef.current) {
-      localStorage.setItem('design-editor-autosave', dataString)
-      lastSaveRef.current = dataString
-      
-      // Also save to history for undo/redo
-      saveToHistory()
-      
-      console.log('Auto-saved at', new Date().toLocaleTimeString())
+      try {
+        // 1. Save locally (Instant)
+        await saveDesignToDB(AUTOSAVE_KEY, dataToSave)
+        lastSaveRef.current = dataString
+        saveToHistory()
+        console.log('Auto-saved to IndexedDB at', new Date().toLocaleTimeString())
+
+        // 2. Sync to cloud (Background with debounce)
+        if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current)
+        syncTimeoutRef.current = setTimeout(() => syncToCloud(dataToSave), 2000)
+
+      } catch (error) {
+        console.error('Auto-save failed:', error)
+      }
     }
-  }, 1000) // Throttle to save at most once per second
+  }, 1000)
 
   useEffect(() => {
-    // Save when pages or current page changes
     if (pages.length > 0 && currentPageId) {
       throttledSave()
     }
   }, [pages, currentPageId, throttledSave])
 
-  // Load saved data on mount
+  // Load saved data on mount with migration logic
   useEffect(() => {
-    const loadSavedData = () => {
+    const loadAndMigrate = async () => {
       try {
-        const savedData = localStorage.getItem('design-editor-autosave')
-        if (savedData) {
-          const parsed = JSON.parse(savedData)
-          
-          // Only load if saved data is not too old (24 hours)
-          const savedTime = new Date(parsed.timestamp)
-          const now = new Date()
-          const hoursDiff = (now.getTime() - savedTime.getTime()) / (1000 * 60 * 60)
-          
-          if (hoursDiff < 24 && parsed.pages && parsed.currentPageId) {
-            // Import the saved data into the store
-            const { loadState } = useCanvasStore.getState()
-            loadState({
-              pages: parsed.pages,
-              currentPageId: parsed.currentPageId,
-              selectedElement: null,
-            })
-            
-            console.log('Loaded auto-saved data from', savedTime.toLocaleString())
+        // 1. Try to load from IndexedDB
+        let savedData = await getDesignFromDB(AUTOSAVE_KEY)
+
+        // 2. If not local, try cloud
+        if (!savedData && process.env.NEXT_PUBLIC_SUPABASE_URL !== 'your_supabase_project_url') {
+          console.log('Checking cloud for design data...')
+          const { data, error } = await supabase
+            .from('designs')
+            .select('content')
+            .eq('id', CLOUD_DESIGN_ID)
+            .single()
+
+          if (data?.content) {
+            console.log('Found design in cloud, importing...')
+            savedData = data.content
+            await saveDesignToDB(AUTOSAVE_KEY, savedData)
           }
         }
+
+        // 3. Check localStorage for migration
+        if (!savedData) {
+          const legacyData = localStorage.getItem(AUTOSAVE_KEY)
+          if (legacyData) {
+            console.log('Found legacy localStorage data, migrating to IndexedDB...')
+            savedData = JSON.parse(legacyData)
+            if (savedData) {
+              await saveDesignToDB(AUTOSAVE_KEY, savedData)
+              localStorage.removeItem(AUTOSAVE_KEY)
+            }
+          }
+        }
+
+        if (savedData) {
+          const parsed = savedData
+          const { loadState } = useCanvasStore.getState()
+          loadState({
+            pages: parsed.pages,
+            currentPageId: parsed.currentPageId,
+            selectedElement: null,
+          })
+
+          lastSaveRef.current = JSON.stringify(savedData)
+          console.log('Loaded design data successfully')
+        }
       } catch (error) {
-        console.error('Failed to load auto-saved data:', error)
+        console.error('Failed to load/migrate data:', error)
       }
     }
 
-    loadSavedData()
+    loadAndMigrate()
   }, [])
 
-  // Periodic save every 5 minutes (less frequent than before)
+  // Periodic save and beforeunload
   useEffect(() => {
-    const interval = setInterval(() => {
+    const handleEvents = async () => {
       if (pages.length > 0 && currentPageId) {
         const dataToSave = {
           pages,
           currentPageId,
           timestamp: new Date().toISOString(),
         }
-        
-        localStorage.setItem('design-editor-autosave', JSON.stringify(dataToSave))
-        console.log('Periodic auto-save at', new Date().toLocaleTimeString())
+        await saveDesignToDB(AUTOSAVE_KEY, dataToSave)
+        await syncToCloud(dataToSave)
       }
-    }, 5 * 60 * 1000) // 5 minutes
-
-    return () => clearInterval(interval)
-  }, [pages, currentPageId])
-
-  // Save before window closes
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      const dataToSave = {
-        pages,
-        currentPageId,
-        timestamp: new Date().toISOString(),
-      }
-      
-      localStorage.setItem('design-editor-autosave', JSON.stringify(dataToSave))
     }
 
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+    const interval = setInterval(handleEvents, 5 * 60 * 1000)
+    window.addEventListener('beforeunload', handleEvents)
+
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('beforeunload', handleEvents)
+      if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current)
+    }
   }, [pages, currentPageId])
 
-  // This component doesn't render anything
+
   return null
 }
 
@@ -122,18 +168,18 @@ export function useSaveLoad() {
         timestamp: new Date().toISOString(),
         version: '1.0',
       }
-      
+
       const dataString = JSON.stringify(dataToSave, null, 2)
       const blob = new Blob([dataString], { type: 'application/json' })
       const url = URL.createObjectURL(blob)
-      
+
       const link = document.createElement('a')
       link.href = url
       link.download = `design-${new Date().toISOString().slice(0, 10)}.json`
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
-      
+
       URL.revokeObjectURL(url)
       console.log('Design saved to file')
     } catch (error) {
@@ -144,11 +190,11 @@ export function useSaveLoad() {
   const loadFromFile = (file: File) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
-      
+
       reader.onload = (e) => {
         try {
           const data = JSON.parse(e.target?.result as string)
-          
+
           if (data.pages && data.currentPageId) {
             const { loadState } = useCanvasStore.getState()
             loadState({
@@ -156,7 +202,7 @@ export function useSaveLoad() {
               currentPageId: data.currentPageId,
               selectedElement: null,
             })
-            
+
             console.log('Design loaded from file')
             resolve(data)
           } else {
@@ -166,21 +212,21 @@ export function useSaveLoad() {
           reject(error)
         }
       }
-      
+
       reader.onerror = () => reject(new Error('Failed to read file'))
       reader.readAsText(file)
     })
   }
 
-  const clearAutoSave = () => {
-    localStorage.removeItem('design-editor-autosave')
-    console.log('Auto-save data cleared')
+  const clearAutoSave = async () => {
+    localStorage.removeItem(AUTOSAVE_KEY)
+    await removeDesignFromDB(AUTOSAVE_KEY)
+    console.log('Auto-save data cleared from all storage')
   }
 
   return {
     saveToFile,
     loadFromFile,
     clearAutoSave,
-    hasAutoSave: !!localStorage.getItem('design-editor-autosave'),
   }
 }

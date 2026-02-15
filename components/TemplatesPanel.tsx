@@ -1,12 +1,12 @@
 'use client'
 
 import React, { useState } from 'react'
-import { 
-  Type, 
-  Square, 
-  Circle, 
-  Triangle, 
-  Star, 
+import {
+  Type,
+  Square,
+  Circle,
+  Triangle,
+  Star,
   Heart,
   Image,
   Layout,
@@ -120,15 +120,12 @@ export default function TemplatesPanel() {
       preview: '▢',
       createElement: () => {
         addElement({
-          type: 'text',
+          type: 'rectangle',
           x: 100,
           y: 100,
           width: 150,
           height: 100,
-          content: '',
-          fontSize: 16,
-          fontFamily: 'Arial',
-          color: '#3b82f6',
+          backgroundColor: '#3b82f6',
         })
       }
     },
@@ -140,15 +137,29 @@ export default function TemplatesPanel() {
       preview: '○',
       createElement: () => {
         addElement({
-          type: 'text',
+          type: 'circle',
           x: 100,
           y: 100,
           width: 120,
           height: 120,
-          content: '',
-          fontSize: 16,
-          fontFamily: 'Arial',
-          color: '#ef4444',
+          backgroundColor: '#ef4444',
+        })
+      }
+    },
+    {
+      id: 'square',
+      name: 'Square',
+      icon: <Square size={20} />,
+      category: 'shapes',
+      preview: '□',
+      createElement: () => {
+        addElement({
+          type: 'square',
+          x: 100,
+          y: 100,
+          width: 100,
+          height: 100,
+          backgroundColor: '#10b981',
         })
       }
     },
@@ -160,15 +171,12 @@ export default function TemplatesPanel() {
       preview: '△',
       createElement: () => {
         addElement({
-          type: 'text',
+          type: 'triangle',
           x: 100,
           y: 100,
           width: 140,
           height: 120,
-          content: '',
-          fontSize: 16,
-          fontFamily: 'Arial',
-          color: '#10b981',
+          backgroundColor: '#f59e0b',
         })
       }
     },
@@ -180,15 +188,29 @@ export default function TemplatesPanel() {
       preview: '★',
       createElement: () => {
         addElement({
-          type: 'text',
+          type: 'star',
           x: 100,
           y: 100,
           width: 120,
           height: 120,
-          content: '',
-          fontSize: 16,
-          fontFamily: 'Arial',
-          color: '#f59e0b',
+          backgroundColor: '#f59e0b',
+        })
+      }
+    },
+    {
+      id: 'heart',
+      name: 'Heart',
+      icon: <Heart size={20} />,
+      category: 'shapes',
+      preview: '♥',
+      createElement: () => {
+        addElement({
+          type: 'heart',
+          x: 100,
+          y: 100,
+          width: 120,
+          height: 120,
+          backgroundColor: '#ef4444',
         })
       }
     }
@@ -283,22 +305,21 @@ export default function TemplatesPanel() {
   }
 
   return (
-    <div className="w-80 bg-white border-l border-gray-200 h-full flex flex-col">
+    <div className="w-80 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 h-full flex flex-col transition-colors relative">
       {/* Header */}
-      <div className="p-4 border-b border-gray-200">
-        <h3 className="font-semibold text-gray-800 mb-3">Templates</h3>
-        
+      <div className="p-4 border-b border-gray-100 dark:border-gray-800">
+        <h3 className="font-bold text-gray-900 dark:text-gray-100 mb-3">Templates</h3>
+
         {/* Category Tabs */}
         <div className="flex gap-1">
           {categories.map((category) => (
             <button
               key={category.id}
               onClick={() => setActiveCategory(category.id)}
-              className={`flex-1 flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-sm transition-colors ${
-                activeCategory === category.id
-                  ? 'bg-blue-100 text-blue-700'
-                  : 'hover:bg-gray-100 text-gray-600'
-              }`}
+              className={`flex-1 flex items-center justify-center gap-1 px-3 py-2 rounded-lg text-sm transition-colors ${activeCategory === category.id
+                ? 'bg-blue-100/50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 shadow-sm border border-blue-200/50 dark:border-blue-800/50'
+                : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-400'
+                }`}
             >
               {category.icon}
               <span>{category.name}</span>
@@ -314,18 +335,18 @@ export default function TemplatesPanel() {
             <button
               key={template.id}
               onClick={() => handleTemplateClick(template)}
-              className="group relative aspect-square bg-gray-50 border-2 border-gray-200 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-all duration-200 flex flex-col items-center justify-center gap-2"
+              className="group relative aspect-square bg-gray-50 dark:bg-gray-700/50 border-2 border-gray-200 dark:border-gray-600 rounded-lg hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-all duration-200 flex flex-col items-center justify-center gap-2"
             >
               {/* Icon */}
-              <div className="text-gray-400 group-hover:text-blue-500 transition-colors">
+              <div className="text-gray-500 dark:text-gray-500 group-hover:text-blue-600 transition-colors">
                 {template.icon}
               </div>
-              
+
               {/* Name */}
-              <span className="text-xs font-medium text-gray-700 group-hover:text-blue-700 transition-colors">
+              <span className="text-xs font-medium text-gray-700 dark:text-gray-300 group-hover:text-blue-700 dark:group-hover:text-blue-300 transition-colors text-center">
                 {template.name}
               </span>
-              
+
               {/* Plus indicator */}
               <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <Plus size={14} className="text-blue-500" />
@@ -335,57 +356,103 @@ export default function TemplatesPanel() {
         </div>
       </div>
 
-      {/* Quick Add Section */}
-      <div className="p-4 border-t border-gray-200">
-        <div className="text-sm text-gray-600 mb-2">Quick Add</div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => {
-              addElement({
-                type: 'text',
-                x: 100,
-                y: 100,
-                width: 200,
-                height: 50,
-                content: 'New Text',
-                fontSize: 16,
-                fontFamily: 'Arial',
-                color: '#000000',
-              })
-            }}
-            className="flex-1 px-3 py-2 bg-blue-500 text-white text-sm rounded-lg hover:bg-blue-600 transition-colors"
-          >
-            Add Text
-          </button>
-          <button
-            onClick={() => {
-              const input = document.createElement('input')
-              input.type = 'file'
-              input.accept = 'image/*'
-              input.onchange = (e) => {
-                const file = (e.target as HTMLInputElement).files?.[0]
-                if (file) {
-                  const reader = new FileReader()
-                  reader.onload = (event) => {
-                    const src = event.target?.result as string
-                    addElement({
-                      type: 'image',
-                      x: 100,
-                      y: 100,
-                      width: 200,
-                      height: 200,
-                      src,
-                    })
+      {/* Quick Add Section - Overlapping */}
+      <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-white via-white to-transparent dark:from-gray-800 dark:via-gray-800 to-transparent">
+        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-lg p-3">
+          <div className="text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-500 mb-2">Quick Add</div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => {
+                addElement({
+                  type: 'text',
+                  x: 100,
+                  y: 100,
+                  width: 200,
+                  height: 50,
+                  content: 'New Text',
+                  fontSize: 16,
+                  fontFamily: 'Arial',
+                  color: '#000000',
+                })
+              }}
+              className="px-3 py-2 bg-blue-500 text-white text-xs rounded-md hover:bg-blue-600 transition-colors font-medium"
+            >
+              Text
+            </button>
+            <button
+              onClick={() => {
+                const input = document.createElement('input')
+                input.type = 'file'
+                input.accept = 'image/*'
+                input.onchange = (e) => {
+                  const file = (e.target as HTMLInputElement).files?.[0]
+                  if (file) {
+                    const reader = new FileReader()
+                    reader.onload = (event) => {
+                      const src = event.target?.result as string
+                      addElement({
+                        type: 'image',
+                        x: 100,
+                        y: 100,
+                        width: 200,
+                        height: 200,
+                        src,
+                      })
+                    }
+                    reader.readAsDataURL(file)
                   }
-                  reader.readAsDataURL(file)
                 }
-              }
-              input.click()
-            }}
-            className="flex-1 px-3 py-2 bg-green-500 text-white text-sm rounded-lg hover:bg-green-600 transition-colors"
-          >
-            Add Image
-          </button>
+                input.click()
+              }}
+              className="px-3 py-2 bg-green-500 text-white text-xs rounded-md hover:bg-green-600 transition-colors font-medium"
+            >
+              Image
+            </button>
+            <button
+              onClick={() => {
+                addElement({
+                  type: 'rectangle',
+                  x: 100,
+                  y: 100,
+                  width: 150,
+                  height: 100,
+                  backgroundColor: '#3b82f6',
+                })
+              }}
+              className="px-3 py-2 bg-purple-500 text-white text-xs rounded-md hover:bg-purple-600 transition-colors font-medium"
+            >
+              Shape
+            </button>
+            <button
+              onClick={() => {
+                addElement({
+                  type: 'text',
+                  x: 50,
+                  y: 50,
+                  width: 450,
+                  height: 80,
+                  content: 'Header Title',
+                  fontSize: 28,
+                  fontFamily: 'Arial',
+                  color: '#000000',
+                })
+                addElement({
+                  type: 'text',
+                  x: 50,
+                  y: 180,
+                  width: 450,
+                  height: 200,
+                  content: 'Main content area goes here. This can include multiple paragraphs of text.',
+                  fontSize: 16,
+                  fontFamily: 'Arial',
+                  color: '#666666',
+                })
+              }}
+              className="px-3 py-2 bg-orange-500 text-white text-xs rounded-md hover:bg-orange-600 transition-colors font-medium"
+            >
+              Layout
+            </button>
+          </div>
         </div>
       </div>
     </div>

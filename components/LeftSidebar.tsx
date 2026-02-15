@@ -1,24 +1,26 @@
 'use client'
 
 import React, { useState } from 'react'
-import { 
-  Square, 
-  Circle, 
-  Triangle, 
-  Type, 
-  Crown, 
-  Upload, 
-  Wrench, 
-  Folder, 
-  Grid3X3, 
-  Sparkles, 
-  StickyNote, 
+import {
+  Square,
+  Circle,
+  Triangle,
+  Type,
+  Crown,
+  Upload,
+  Wrench,
+  Folder,
+  Grid3X3,
+  Sparkles,
+  StickyNote,
   Clock,
   ChevronDown,
   Search,
-  Layout
+  Layout,
+  Palette
 } from 'lucide-react'
 import { useCanvasStore } from '../store/canvas-store'
+import ShapeToolbar from './ShapeToolbar'
 
 interface SidebarItem {
   id: string
@@ -27,9 +29,18 @@ interface SidebarItem {
   badge?: string
 }
 
-export default function LeftSidebar() {
-  const [activeTab, setActiveTab] = useState('design')
-  const [showDesignPanel, setShowDesignPanel] = useState(true)
+interface LeftSidebarProps {
+  activeTab?: string
+  onTabChange?: (tabId: string) => void
+  showShapeToolbar?: boolean
+}
+
+export default function LeftSidebar({ activeTab: externalActiveTab, onTabChange }: LeftSidebarProps) {
+  const [internalActiveTab, setInternalActiveTab] = useState('design')
+
+  const activeTab = externalActiveTab || internalActiveTab
+  const setActiveTab = onTabChange || setInternalActiveTab
+
   const { addElement } = useCanvasStore()
 
   const mainTabs: SidebarItem[] = [
@@ -50,7 +61,7 @@ export default function LeftSidebar() {
 
   const handleTabClick = (tabId: string) => {
     setActiveTab(tabId)
-    
+
     // Add text element when Text tab is clicked
     if (tabId === 'text') {
       addElement({
@@ -65,7 +76,7 @@ export default function LeftSidebar() {
         color: '#000000',
       })
     }
-    
+
     // Handle image upload when Uploads tab is clicked
     if (tabId === 'uploads') {
       const input = document.createElement('input')
@@ -94,37 +105,54 @@ export default function LeftSidebar() {
   }
 
   return (
-    <div className="w-20 bg-white border-r border-gray-200 flex flex-col">
+    <div className="w-20 bg-white/80 dark:bg-gray-900/80 backdrop-blur-xl border-r border-gray-200 dark:border-gray-800 flex flex-col transition-all duration-300">
+      {/* App Logo/Icon Area */}
+      <div className="h-16 flex items-center justify-center border-b border-gray-100 dark:border-gray-800/50">
+        <div className="w-10 h-10 bg-gradient-to-tr from-blue-600 to-indigo-500 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/30 transform hover:rotate-12 transition-transform cursor-pointer">
+          <Palette className="text-white" size={24} strokeWidth={2.5} />
+        </div>
+      </div>
+
       {/* Main Navigation */}
-      <div className="flex-1 py-4">
+      <div className="flex-1 py-6 space-y-2 px-2 overflow-y-auto">
         {mainTabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => handleTabClick(tab.id)}
-            className={`w-full p-3 flex flex-col items-center gap-1 hover:bg-gray-50 transition-colors relative ${
-              activeTab === tab.id ? 'bg-blue-50 text-blue-600' : 'text-gray-700'
-            }`}
+            className={`w-full group relative p-3 flex flex-col items-center justify-center gap-1.5 rounded-2xl transition-all duration-200 hover:scale-[1.02] active:scale-95 ${activeTab === tab.id
+              ? 'bg-blue-600 shadow-lg shadow-blue-500/25 text-white'
+              : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+              }`}
           >
-            {tab.icon}
-            <span className="text-xs">{tab.label}</span>
-            {tab.badge && (
-              <span className="absolute top-2 right-2 bg-purple-600 text-white text-xs px-1 rounded">
-                {tab.badge}
-              </span>
+            <div className={`transition-transform duration-200 group-hover:-translate-y-0.5 ${activeTab === tab.id ? 'scale-110' : ''}`}>
+              {tab.icon}
+            </div>
+            <span className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${activeTab === tab.id ? 'text-blue-50' : 'text-gray-600 dark:text-gray-400'}`}>
+              {tab.label}
+            </span>
+
+            {/* Active Indicator Dot (optional, subtle) */}
+            {activeTab === tab.id && (
+              <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-blue-600 rounded-r-full" />
             )}
           </button>
         ))}
       </div>
 
       {/* Bottom Navigation */}
-      <div className="border-t border-gray-200 py-2">
+      <div className="border-t border-gray-100 dark:border-gray-800 px-2 py-4 space-y-2">
         {bottomTabs.map((tab) => (
           <button
             key={tab.id}
-            className="w-full p-3 flex flex-col items-center gap-1 hover:bg-gray-50 transition-colors text-gray-700"
+            onClick={() => handleTabClick(tab.id)}
+            className={`w-full group p-3 flex flex-col items-center justify-center gap-1.5 rounded-2xl transition-all duration-200 hover:scale-[1.02] active:scale-95 ${activeTab === tab.id
+              ? 'bg-blue-600 shadow-lg shadow-blue-500/25 text-white'
+              : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+              }`}
           >
-            {tab.icon}
-            <span className="text-xs">{tab.label}</span>
+            <div className="transition-transform duration-200 group-hover:-translate-y-0.5">
+              {tab.icon}
+            </div>
           </button>
         ))}
       </div>
