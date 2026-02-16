@@ -26,7 +26,7 @@ export default function KeyboardShortcuts() {
     undo,
     redo,
     updateElement,
-    moveElement,
+    updateElementPosition,
     saveToHistory,
     zoomIn,
     zoomOut,
@@ -215,9 +215,9 @@ export default function KeyboardShortcuts() {
         if (selectedElement) {
           const element = currentPageElements.find(el => el.id === selectedElement)
           if (element) {
-            updateElement(selectedElement, { 
-              width: element.width * 1.1, 
-              height: element.height * 1.1 
+            updateElement(selectedElement, {
+              width: element.width * 1.1,
+              height: element.height * 1.1
             })
           }
         }
@@ -230,9 +230,9 @@ export default function KeyboardShortcuts() {
         if (selectedElement) {
           const element = currentPageElements.find(el => el.id === selectedElement)
           if (element) {
-            updateElement(selectedElement, { 
-              width: element.width * 0.9, 
-              height: element.height * 0.9 
+            updateElement(selectedElement, {
+              width: element.width * 0.9,
+              height: element.height * 0.9
             })
           }
         }
@@ -246,9 +246,9 @@ export default function KeyboardShortcuts() {
         if (selectedElement) {
           const element = currentPageElements.find(el => el.id === selectedElement)
           if (element) {
-            updateElement(selectedElement, { 
-              width: element.width * 1.5, 
-              height: element.height * 1.5 
+            updateElement(selectedElement, {
+              width: element.width * 1.5,
+              height: element.height * 1.5
             })
           }
         }
@@ -262,9 +262,9 @@ export default function KeyboardShortcuts() {
         if (selectedElement) {
           const element = currentPageElements.find(el => el.id === selectedElement)
           if (element) {
-            updateElement(selectedElement, { 
-              width: element.width * 0.5, 
-              height: element.height * 0.5 
+            updateElement(selectedElement, {
+              width: element.width * 0.5,
+              height: element.height * 0.5
             })
           }
         }
@@ -279,8 +279,8 @@ export default function KeyboardShortcuts() {
         if (selectedElement) {
           const element = currentPageElements.find(el => el.id === selectedElement)
           if (element && element.type === 'text') {
-            updateElement(selectedElement, { 
-              fontSize: (element.fontSize || 16) + 2 
+            updateElement(selectedElement, {
+              fontSize: (element.fontSize || 16) + 2
             })
           }
         }
@@ -293,8 +293,8 @@ export default function KeyboardShortcuts() {
         if (selectedElement) {
           const element = currentPageElements.find(el => el.id === selectedElement)
           if (element && element.type === 'text') {
-            updateElement(selectedElement, { 
-              fontSize: Math.max(8, (element.fontSize || 16) - 2) 
+            updateElement(selectedElement, {
+              fontSize: Math.max(8, (element.fontSize || 16) - 2)
             })
           }
         }
@@ -482,9 +482,12 @@ export default function KeyboardShortcuts() {
       key: 'ArrowUp',
       action: () => {
         if (selectedElement) {
-          startMovement()
-          moveElement(selectedElement, 0, -1)
-          debouncedSaveHistory()
+          const element = currentPageElements.find(el => el.id === selectedElement)
+          if (element) {
+            startMovement()
+            updateElementPosition(selectedElement, element.x, element.y - 1)
+            debouncedSaveHistory()
+          }
         }
       },
       description: 'Move element up',
@@ -493,9 +496,12 @@ export default function KeyboardShortcuts() {
       key: 'ArrowDown',
       action: () => {
         if (selectedElement) {
-          startMovement()
-          moveElement(selectedElement, 0, 1)
-          debouncedSaveHistory()
+          const element = currentPageElements.find(el => el.id === selectedElement)
+          if (element) {
+            startMovement()
+            updateElementPosition(selectedElement, element.x, element.y + 1)
+            debouncedSaveHistory()
+          }
         }
       },
       description: 'Move element down',
@@ -504,9 +510,12 @@ export default function KeyboardShortcuts() {
       key: 'ArrowLeft',
       action: () => {
         if (selectedElement) {
-          startMovement()
-          moveElement(selectedElement, -1, 0)
-          debouncedSaveHistory()
+          const element = currentPageElements.find(el => el.id === selectedElement)
+          if (element) {
+            startMovement()
+            updateElementPosition(selectedElement, element.x - 1, element.y)
+            debouncedSaveHistory()
+          }
         }
       },
       description: 'Move element left',
@@ -515,9 +524,12 @@ export default function KeyboardShortcuts() {
       key: 'ArrowRight',
       action: () => {
         if (selectedElement) {
-          startMovement()
-          moveElement(selectedElement, 1, 0)
-          debouncedSaveHistory()
+          const element = currentPageElements.find(el => el.id === selectedElement)
+          if (element) {
+            startMovement()
+            updateElementPosition(selectedElement, element.x + 1, element.y)
+            debouncedSaveHistory()
+          }
         }
       },
       description: 'Move element right',
@@ -527,9 +539,12 @@ export default function KeyboardShortcuts() {
       shiftKey: true,
       action: () => {
         if (selectedElement) {
-          startMovement()
-          moveElement(selectedElement, 0, -10)
-          debouncedSaveHistory()
+          const element = currentPageElements.find(el => el.id === selectedElement)
+          if (element) {
+            startMovement()
+            updateElementPosition(selectedElement, element.x, element.y - 10)
+            debouncedSaveHistory()
+          }
         }
       },
       description: 'Move element up (fast)',
@@ -539,9 +554,12 @@ export default function KeyboardShortcuts() {
       shiftKey: true,
       action: () => {
         if (selectedElement) {
-          startMovement()
-          moveElement(selectedElement, 0, 10)
-          debouncedSaveHistory()
+          const element = currentPageElements.find(el => el.id === selectedElement)
+          if (element) {
+            startMovement()
+            updateElementPosition(selectedElement, element.x, element.y + 10)
+            debouncedSaveHistory()
+          }
         }
       },
       description: 'Move element down (fast)',
@@ -551,9 +569,12 @@ export default function KeyboardShortcuts() {
       shiftKey: true,
       action: () => {
         if (selectedElement) {
-          startMovement()
-          moveElement(selectedElement, -10, 0)
-          debouncedSaveHistory()
+          const element = currentPageElements.find(el => el.id === selectedElement)
+          if (element) {
+            startMovement()
+            updateElementPosition(selectedElement, element.x - 10, element.y)
+            debouncedSaveHistory()
+          }
         }
       },
       description: 'Move element left (fast)',
@@ -563,9 +584,12 @@ export default function KeyboardShortcuts() {
       shiftKey: true,
       action: () => {
         if (selectedElement) {
-          startMovement()
-          moveElement(selectedElement, 10, 0)
-          debouncedSaveHistory()
+          const element = currentPageElements.find(el => el.id === selectedElement)
+          if (element) {
+            startMovement()
+            updateElementPosition(selectedElement, element.x + 10, element.y)
+            debouncedSaveHistory()
+          }
         }
       },
       description: 'Move element right (fast)',
@@ -734,29 +758,6 @@ export default function KeyboardShortcuts() {
       description: 'Add triangle',
     },
 
-    // Page navigation
-    {
-      key: 'Tab',
-      action: () => {
-        const currentIndex = pages.findIndex(p => p.id === currentPageId)
-        if (currentIndex < pages.length - 1) {
-          setCurrentPage(pages[currentIndex + 1].id)
-        }
-      },
-      description: 'Next page',
-    },
-    {
-      key: 'Tab',
-      shiftKey: true,
-      action: () => {
-        const currentIndex = pages.findIndex(p => p.id === currentPageId)
-        if (currentIndex > 0) {
-          setCurrentPage(pages[currentIndex - 1].id)
-        }
-      },
-      description: 'Previous page',
-    },
-
     // Escape to deselect
     {
       key: 'Escape',
@@ -770,16 +771,16 @@ export default function KeyboardShortcuts() {
       // Don't trigger shortcuts when typing in input fields
       const target = e.target as HTMLElement
       const isInputElement = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA'
-      
+
       // Special handling for text editing - check if we're editing a text element
       const isEditingTextElement = target.tagName === 'TEXTAREA' && target.getAttribute('data-element-id')
-      
+
       // Allow Delete/Backspace to work normally when editing text content
       const isDeleteKey = e.key === 'Delete' || e.key === 'Backspace'
-      
+
       // Allow arrow keys to work normally when editing text
       const isArrowKey = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)
-      
+
       // FIRST: Handle text editing context - this takes priority
       if (isEditingTextElement) {
         // When editing text, let Delete/Backspace and Arrow keys work normally
@@ -789,12 +790,12 @@ export default function KeyboardShortcuts() {
         // Block other shortcuts when editing text
         return
       }
-      
+
       // THEN: Handle regular input fields (not text elements)
       if (isInputElement) {
         return // Block all shortcuts in regular input fields
       }
-      
+
       // FINALLY: Handle element deletion when NOT editing text
       if (isDeleteKey && selectedElement) {
         e.preventDefault()
@@ -803,7 +804,7 @@ export default function KeyboardShortcuts() {
         return
       }
 
-      const shortcut = shortcuts.find(s => 
+      const shortcut = shortcuts.find(s =>
         s.key === e.key &&
         (s.ctrlKey ? e.ctrlKey || e.metaKey : !e.ctrlKey && !e.metaKey) &&
         (s.shiftKey ? e.shiftKey : !e.shiftKey) &&
@@ -817,7 +818,7 @@ export default function KeyboardShortcuts() {
     }
 
     document.addEventListener('keydown', handleKeyDown)
-    
+
     // Cleanup function
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
@@ -846,41 +847,40 @@ export function KeyboardShortcutsHelp() {
     { keys: 'Ctrl+Shift+Tab', description: 'Select previous element' },
     { keys: 'Delete/Backspace', description: 'Delete selected' },
     { keys: 'Ctrl+Delete', description: 'Clear canvas' },
-    
+
     // Movement
     { keys: 'Arrow Keys', description: 'Move element (1px)' },
     { keys: 'Shift + Arrow Keys', description: 'Move element (10px)' },
     { keys: 'Ctrl+H/J/K/L', description: 'Quick positioning' },
-    
+
     // Size & Transform
     { keys: '+/-', description: 'Increase/Decrease size (10%)' },
     { keys: 'Shift+=/_', description: 'Increase/Decrease size (50%)' },
     { keys: 'R / Shift+R', description: 'Rotate element' },
     { keys: '[ / ]', description: 'Decrease/Increase opacity' },
-    
+
     // Colors
     { keys: '1-5', description: 'Quick colors (black, red, blue, green, yellow)' },
-    
+
     // Text
     { keys: 'T', description: 'Add text' },
     { keys: '{ / }', description: 'Decrease/Increase font size' },
     { keys: 'Ctrl+L/E/R', description: 'Text align (left, center, right)' },
-    
+
     // Shapes
     { keys: 'Alt+R', description: 'Add rectangle' },
     { keys: 'Alt+C', description: 'Add circle' },
     { keys: 'Alt+S', description: 'Add square' },
     { keys: 'Alt+T', description: 'Add triangle' },
-    
+
     // Layers
     { keys: 'PageUp/PageDown', description: 'Bring forward/Send back' },
     { keys: 'Home/End', description: 'Bring to front/Send to back' },
-    
+
     // Pages
-    { keys: 'Tab/Shift+Tab', description: 'Next/Previous page' },
     { keys: 'Ctrl+N', description: 'New page' },
     { keys: 'Ctrl+Shift+D', description: 'Duplicate page' },
-    
+
     // View & Tools
     { keys: 'Ctrl+S', description: 'Export/Save design' },
     { keys: 'Ctrl+G', description: 'Toggle grid' },

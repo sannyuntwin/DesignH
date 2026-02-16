@@ -23,10 +23,10 @@ const DesignCanvas = memo(function DesignCanvas({ width, height }: DesignCanvasP
     addElement,
     updateElement,
     selectElement,
-    moveElement,
     deleteElement,
     setCanvasSize,
     resizeElement,
+    updateElementPosition,
     zoomLevel,
     panOffset,
   } = useCanvasStore()
@@ -35,6 +35,45 @@ const DesignCanvas = memo(function DesignCanvas({ width, height }: DesignCanvasP
   const currentPageElements = currentPage?.elements || []
   const actualWidth = width || currentPage?.canvasWidth || 800
   const actualHeight = height || currentPage?.canvasHeight || 600
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    const files = e.dataTransfer.files
+    if (files && files.length > 0) {
+      const file = files[0]
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader()
+        reader.onload = (event) => {
+          const src = event.target?.result as string
+
+          // Calculate drop position relative to canvas
+          const rect = canvasRef.current?.getBoundingClientRect()
+          if (rect) {
+            const x = (e.clientX - rect.left) / zoomLevel
+            const y = (e.clientY - rect.top) / zoomLevel
+
+            addElement({
+              type: 'image',
+              x,
+              y,
+              width: 200,
+              height: 200,
+              src,
+            })
+          }
+        }
+        reader.readAsDataURL(file)
+      }
+    }
+  }, [addElement, zoomLevel])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'copy'
+  }, [])
 
   useEffect(() => {
     if (width && height) {
@@ -101,13 +140,13 @@ const DesignCanvas = memo(function DesignCanvas({ width, height }: DesignCanvasP
       e.preventDefault()
       const touch = e.touches[0]
       if (touch) {
-        const deltaX = touch.clientX - dragStart.x
-        const deltaY = touch.clientY - dragStart.y
+        const deltaX = (touch.clientX - dragStart.x) / zoomLevel
+        const deltaY = (touch.clientY - dragStart.y) / zoomLevel
 
-        moveElement(selectedElement, elementStart.x + deltaX, elementStart.y + deltaY)
+        updateElementPosition(selectedElement, elementStart.x + deltaX, elementStart.y + deltaY)
       }
     }
-  }, [isDragging, selectedElement, dragStart, elementStart, moveElement])
+  }, [isDragging, selectedElement, dragStart, elementStart, updateElementPosition, zoomLevel])
 
   const handleTouchEnd = useCallback(() => {
     setIsDragging(false)
@@ -117,23 +156,23 @@ const DesignCanvas = memo(function DesignCanvas({ width, height }: DesignCanvasP
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (isDragging && selectedElement) {
       e.preventDefault()
-      const deltaX = e.clientX - dragStart.x
-      const deltaY = e.clientY - dragStart.y
+      const deltaX = (e.clientX - dragStart.x) / zoomLevel
+      const deltaY = (e.clientY - dragStart.y) / zoomLevel
 
-      moveElement(selectedElement, elementStart.x + deltaX, elementStart.y + deltaY)
+      updateElementPosition(selectedElement, elementStart.x + deltaX, elementStart.y + deltaY)
     }
 
     if (isResizing && selectedElement) {
       e.preventDefault()
-      const deltaX = e.clientX - resizeStart.x
-      const deltaY = e.clientY - resizeStart.y
+      const deltaX = (e.clientX - resizeStart.x) / zoomLevel
+      const deltaY = (e.clientY - resizeStart.y) / zoomLevel
 
       const newWidth = Math.max(20, resizeStart.width + deltaX)
       const newHeight = Math.max(20, resizeStart.height + deltaY)
 
       resizeElement(selectedElement, newWidth, newHeight)
     }
-  }, [isDragging, isResizing, selectedElement, dragStart, elementStart, resizeStart, moveElement, resizeElement])
+  }, [isDragging, isResizing, selectedElement, dragStart, elementStart, resizeStart, updateElementPosition, resizeElement, zoomLevel])
 
   const handleMouseUp = useCallback(() => {
     setIsDragging(false)
@@ -141,7 +180,11 @@ const DesignCanvas = memo(function DesignCanvas({ width, height }: DesignCanvasP
   }, [])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (selectedElement && e.key === 'Delete') {
+    // Don't delete if we're typing in an input or textarea
+    const target = e.target as HTMLElement
+    const isEditing = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
+
+    if (selectedElement && e.key === 'Delete' && !isEditing) {
       deleteElement(selectedElement)
       selectElement(null)
     }
@@ -167,6 +210,8 @@ const DesignCanvas = memo(function DesignCanvas({ width, height }: DesignCanvasP
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
       onKeyDown={handleKeyDown}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
       tabIndex={0}
     >
       {currentPageElements
@@ -210,6 +255,51 @@ function DesignElementComponent({
     onUpdate({ content: e.target.value })
   }, [onUpdate])
 
+  const handleTextAreaKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    e.stopPropagation()
+
+    if (e.key === ' ') {
+      e.preventDefault()
+      e.stopPropagation()
+      const textarea = e.currentTarget
+      const { selectionStart, selectionEnd, value } = textarea
+      const newValue = value.substring(0, selectionStart) + ' ' + value.substring(selectionEnd)
+      onUpdate({ content: newValue })
+      setTimeout(() => {
+        textarea.selectionStart = textarea.selectionEnd = selectionStart + 1
+      }, 0)
+    }
+
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      e.stopPropagation()
+      const textarea = e.currentTarget
+      const { selectionStart, selectionEnd, value } = textarea
+      const newValue = value.substring(0, selectionStart) + '\n' + value.substring(selectionEnd)
+      onUpdate({ content: newValue })
+      setTimeout(() => {
+        textarea.selectionStart = textarea.selectionEnd = selectionStart + 1
+      }, 0)
+    }
+
+    if (e.key === 'Tab') {
+      e.preventDefault()
+      const textarea = e.currentTarget
+      const { selectionStart, selectionEnd, value } = textarea
+
+      // Use 4 spaces for tab
+      const tabString = '    '
+      const newValue = value.substring(0, selectionStart) + tabString + value.substring(selectionEnd)
+
+      onUpdate({ content: newValue })
+
+      // Reset cursor position after React update
+      setTimeout(() => {
+        textarea.selectionStart = textarea.selectionEnd = selectionStart + tabString.length
+      }, 0)
+    }
+  }, [onUpdate])
+
   const handleTextBlur = useCallback(() => {
     setIsEditing(false)
   }, [])
@@ -230,16 +320,21 @@ function DesignElementComponent({
   }, [element.type, element.id])
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    // Don't prevent default if we're clicking inside the textarea while editing
+    if (isEditing) return
+
     e.preventDefault()
     onMouseDown(e)
-  }, [onMouseDown])
+  }, [onMouseDown, isEditing])
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (isEditing) return
+
     e.preventDefault()
     if (onTouchStart) {
       onTouchStart(e)
     }
-  }, [onTouchStart])
+  }, [onTouchStart, isEditing])
 
   const baseStyle: React.CSSProperties = {
     position: 'absolute',
@@ -269,6 +364,8 @@ function DesignElementComponent({
               value={element.content || ''}
               onChange={handleTextChange}
               onBlur={handleTextBlur}
+              onKeyDown={handleTextAreaKeyDown}
+              onMouseDown={(e) => e.stopPropagation()}
               className="w-full h-full resize-none border-none outline-none bg-transparent"
               style={{
                 fontSize: element.fontSize || 16,
@@ -278,22 +375,18 @@ function DesignElementComponent({
                 textAlign: element.textAlign || 'left',
                 color: element.color || 'inherit',
                 padding: `${element.paddingTop || 8}px ${element.paddingRight || 8}px ${element.paddingBottom || 8}px ${element.paddingLeft || 8}px`,
-                margin: `${element.marginTop || 0}px ${element.marginRight || 0}px ${element.marginBottom || 0}px ${element.marginLeft || 0}px`,
+                margin: 0,
                 lineHeight: element.lineHeight || 1.2,
                 letterSpacing: `${element.letterSpacing || 0}px`,
                 wordSpacing: `${element.wordSpacing || 0}px`,
                 textIndent: `${element.textIndent || 0}px`,
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: element.verticalAlign === 'top' ? 'flex-start' : element.verticalAlign === 'bottom' ? 'flex-end' : 'center',
-                boxSizing: 'border-box'
+                boxSizing: 'border-box',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
               }}
               autoFocus
             />
-            {/* Visual indicator for text editing mode */}
-            <div className="absolute top-0 right-0 bg-blue-500 text-white text-xs px-2 py-1 rounded-bl-lg">
-              Editing Text
-            </div>
+
           </div>
         ) : (
           <div
@@ -303,7 +396,7 @@ function DesignElementComponent({
               margin: `${element.marginTop || 0}px ${element.marginRight || 0}px ${element.marginBottom || 0}px ${element.marginLeft || 0}px`,
               display: 'flex',
               flexDirection: 'column',
-              justifyContent: element.verticalAlign === 'top' ? 'flex-start' : element.verticalAlign === 'bottom' ? 'flex-end' : 'center',
+              justifyContent: element.verticalAlign === 'bottom' ? 'flex-end' : element.verticalAlign === 'middle' ? 'center' : 'flex-start',
               boxSizing: 'border-box'
             }}
           >
@@ -319,7 +412,9 @@ function DesignElementComponent({
                 letterSpacing: `${element.letterSpacing || 0}px`,
                 wordSpacing: `${element.wordSpacing || 0}px`,
                 textIndent: `${element.textIndent || 0}px`,
-                width: '100%'
+                width: '100%',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
               }}
             >
               {element.content}
@@ -353,16 +448,22 @@ function DesignElementComponent({
         onMouseDown={handleMouseDown}
         onTouchStart={handleTouchStart}
       >
-        <img
-          src={element.src}
-          alt="Design element"
-          className="w-full h-full pointer-events-none"
-          style={{
-            objectFit: 'cover',
-            display: 'block'
-          }}
-          draggable={false}
-        />
+        {element.src ? (
+          <div
+            className="w-full h-full pointer-events-none"
+            style={{
+              backgroundImage: `url(${element.src})`,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              backgroundRepeat: 'no-repeat',
+              display: 'block'
+            }}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-gray-200 text-gray-500">
+            <span>No image source</span>
+          </div>
+        )}
         {isSelected && (
           <div className="absolute inset-0 border-2 border-blue-500 pointer-events-none no-export" />
         )}

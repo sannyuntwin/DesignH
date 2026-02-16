@@ -73,7 +73,7 @@ interface CanvasStore {
   updateElement: (id: string, updates: Partial<DesignElement>) => void
   deleteElement: (id: string) => void
   selectElement: (id: string | null) => void
-  moveElement: (id: string, deltaX: number, deltaY: number) => void
+  updateElementPosition: (id: string, x: number, y: number) => void
   resizeElement: (id: string, width: number, height: number) => void
   clearCanvas: () => void
   setCanvasSize: (width: number, height: number) => void
@@ -239,11 +239,11 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
         pages: state.pages.map(page =>
           page.id === currentPageId
             ? {
-                ...page,
-                elements: page.elements.map(el =>
-                  el.id === id ? { ...el, ...updates } : el
-                ),
-              }
+              ...page,
+              elements: page.elements.map(el =>
+                el.id === id ? { ...el, ...updates } : el
+              ),
+            }
             : page
         ),
       }))
@@ -270,7 +270,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
       set({ selectedElement: id })
     },
 
-    moveElement: (id, deltaX, deltaY) => {
+    updateElementPosition: (id, x, y) => {
       const { currentPageId } = get()
       if (!currentPageId) return
 
@@ -278,13 +278,13 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
         const updatedPages = state.pages.map(page =>
           page.id === currentPageId
             ? {
-                ...page,
-                elements: page.elements.map(el =>
-                  el.id === id 
-                    ? { ...el, x: el.x + deltaX, y: el.y + deltaY } 
-                    : el
-                ),
-              }
+              ...page,
+              elements: page.elements.map(el =>
+                el.id === id
+                  ? { ...el, x: x, y: y }
+                  : el
+              ),
+            }
             : page
         )
         return { pages: updatedPages }
@@ -304,7 +304,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
             ? {
               ...page,
               elements: page.elements.map(el =>
-                el.id === id ? { ...el, width, height } : el
+                el.id === id ? { ...el, width, height, src: el.src } : el
               ),
             }
             : page

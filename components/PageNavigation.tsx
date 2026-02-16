@@ -12,8 +12,10 @@ import {
   X
 } from 'lucide-react'
 import { useCanvasStore } from '../store/canvas-store'
+import { useToast } from './Toast'
 
 export default function PageNavigation() {
+  const { showToast } = useToast()
   const {
     pages,
     currentPageId,
@@ -107,8 +109,8 @@ export default function PageNavigation() {
             <div
               key={page.id}
               className={`flex items-center gap-1 px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${page.id === currentPageId
-                  ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400'
-                  : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+                ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400'
+                : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
                 }`}
               onClick={() => setCurrentPage(page.id)}
             >
@@ -165,29 +167,38 @@ export default function PageNavigation() {
       {/* Right Section - Page Actions */}
       <div className="flex items-center gap-2">
         <button
-          onClick={handleAddPage}
-          className="flex items-center gap-1 px-3 py-1.5 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-sm"
+          onClick={() => {
+            handleAddPage()
+            showToast('New page added', 'success')
+          }}
+          className="flex items-center justify-center w-10 h-10 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors shadow-sm"
+          title="Add Page"
         >
-          <Plus size={14} />
-          <span>Add Page</span>
+          <Plus size={18} />
         </button>
 
         {currentPage && pages.length > 1 && (
           <>
             <button
-              onClick={() => duplicatePage(currentPage.id)}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors text-gray-700 dark:text-gray-300"
+              onClick={() => {
+                duplicatePage(currentPage.id)
+                showToast('Page duplicated', 'success')
+              }}
+              className="p-2 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-lg transition-colors text-gray-700 dark:text-gray-300"
               title="Duplicate page"
             >
-              <Copy size={14} />
+              <Copy size={16} />
             </button>
 
             <button
-              onClick={() => deletePage(currentPage.id)}
-              className="p-2 hover:bg-red-100 rounded-lg transition-colors text-red-600"
+              onClick={() => {
+                deletePage(currentPage.id)
+                showToast('Page deleted', 'error')
+              }}
+              className="p-2 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-lg transition-colors text-red-600"
               title="Delete page"
             >
-              <Trash2 size={14} />
+              <Trash2 size={16} />
             </button>
           </>
         )}

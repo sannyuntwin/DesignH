@@ -14,6 +14,7 @@ import {
   Plus
 } from 'lucide-react'
 import { useCanvasStore } from '../store/canvas-store'
+import { useToast } from './Toast'
 
 interface Template {
   id: string
@@ -25,6 +26,7 @@ interface Template {
 }
 
 export default function TemplatesPanel() {
+  const { showToast } = useToast()
   const [activeCategory, setActiveCategory] = useState('text')
   const { addElement } = useCanvasStore()
 
@@ -308,7 +310,9 @@ export default function TemplatesPanel() {
     <div className="w-80 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 h-full flex flex-col transition-colors relative">
       {/* Header */}
       <div className="p-4 border-b border-gray-100 dark:border-gray-800">
-        <h3 className="font-bold text-gray-900 dark:text-gray-100 mb-3">Templates</h3>
+        <div className="flex items-center justify-center mb-3">
+          <Palette className="text-blue-600" size={20} />
+        </div>
 
         {/* Category Tabs */}
         <div className="flex gap-1">
@@ -320,9 +324,9 @@ export default function TemplatesPanel() {
                 ? 'bg-blue-100/50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400 shadow-sm border border-blue-200/50 dark:border-blue-800/50'
                 : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-400'
                 }`}
+              title={category.name}
             >
               {category.icon}
-              <span>{category.name}</span>
             </button>
           ))}
         </div>
@@ -359,8 +363,7 @@ export default function TemplatesPanel() {
       {/* Quick Add Section - Overlapping */}
       <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-white via-white to-transparent dark:from-gray-800 dark:via-gray-800 to-transparent">
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-lg p-3">
-          <div className="text-[10px] font-bold uppercase tracking-widest text-gray-500 dark:text-gray-500 mb-2">Quick Add</div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-4 gap-2">
             <button
               onClick={() => {
                 addElement({
@@ -374,10 +377,12 @@ export default function TemplatesPanel() {
                   fontFamily: 'Arial',
                   color: '#000000',
                 })
+                showToast('Text added', 'success')
               }}
-              className="px-3 py-2 bg-blue-500 text-white text-xs rounded-md hover:bg-blue-600 transition-colors font-medium"
+              className="p-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors flex items-center justify-center"
+              title="Add Text"
             >
-              Text
+              <Type size={16} />
             </button>
             <button
               onClick={() => {
@@ -398,15 +403,17 @@ export default function TemplatesPanel() {
                         height: 200,
                         src,
                       })
+                      showToast('Image added', 'success')
                     }
                     reader.readAsDataURL(file)
                   }
                 }
                 input.click()
               }}
-              className="px-3 py-2 bg-green-500 text-white text-xs rounded-md hover:bg-green-600 transition-colors font-medium"
+              className="p-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors flex items-center justify-center"
+              title="Add Image"
             >
-              Image
+              <Image size={16} />
             </button>
             <button
               onClick={() => {
@@ -418,10 +425,12 @@ export default function TemplatesPanel() {
                   height: 100,
                   backgroundColor: '#3b82f6',
                 })
+                showToast('Shape added', 'success')
               }}
-              className="px-3 py-2 bg-purple-500 text-white text-xs rounded-md hover:bg-purple-600 transition-colors font-medium"
+              className="p-2 bg-purple-500 text-white rounded-md hover:bg-purple-600 transition-colors flex items-center justify-center"
+              title="Add Shape"
             >
-              Shape
+              <Square size={16} />
             </button>
             <button
               onClick={() => {
@@ -447,10 +456,12 @@ export default function TemplatesPanel() {
                   fontFamily: 'Arial',
                   color: '#666666',
                 })
+                showToast('Layout added', 'success')
               }}
-              className="px-3 py-2 bg-orange-500 text-white text-xs rounded-md hover:bg-orange-600 transition-colors font-medium"
+              className="p-2 bg-orange-500 text-white rounded-md hover:bg-orange-600 transition-colors flex items-center justify-center"
+              title="Add Layout"
             >
-              Layout
+              <Layout size={16} />
             </button>
           </div>
         </div>

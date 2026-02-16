@@ -1,12 +1,16 @@
 import html2canvas from 'html2canvas'
 import jsPDF from 'jspdf'
 
-const getExportOptions = () => ({
-  backgroundColor: null, // Respect design background
-  scale: 4, // Higher quality for print (300 DPI approx)
-  logging: false,
+const getExportOptions = (element: HTMLElement) => ({
+  backgroundColor: '#ffffff', // Ensure a solid background for the export
+  scale: 4, // 4x scale for high quality
+  logging: true, // Enable logging for troubleshooting if needed
   useCORS: true,
-  allowTaint: true,
+  allowTaint: false, // Don't allow tainted canvases as they break toDataURL
+  scrollX: 0,
+  scrollY: 0,
+  windowWidth: element.offsetWidth,
+  windowHeight: element.offsetHeight,
   onclone: (clonedDoc: Document) => {
     // Hide all elements with the 'no-export' class
     const noExportElements = clonedDoc.querySelectorAll('.no-export')
@@ -16,17 +20,37 @@ const getExportOptions = () => ({
       }
     })
 
-    // Reset transform on the cloned element to ensure correct export layout
+    // Remove 'selected' class and outlines from design elements to ensure clean export
+    const selectedElements = clonedDoc.querySelectorAll('.selected')
+    selectedElements.forEach(el => {
+      if (el instanceof HTMLElement) {
+        el.classList.remove('selected')
+        el.style.outline = 'none'
+        el.style.boxShadow = 'none'
+      }
+    })
+
+    // Prepare the design-canvas for export
     const clonedCanvas = clonedDoc.getElementById('design-canvas')
     if (clonedCanvas) {
+      // RESET ALL INTERFERING STYLES
       clonedCanvas.style.transform = 'none'
+      clonedCanvas.style.transition = 'none'
       clonedCanvas.style.border = 'none'
       clonedCanvas.style.boxShadow = 'none'
       clonedCanvas.style.margin = '0'
       clonedCanvas.style.padding = '0'
       clonedCanvas.style.left = '0'
       clonedCanvas.style.top = '0'
-      clonedCanvas.style.position = 'relative'
+      clonedCanvas.style.position = 'absolute' // Force absolute to avoid page layout shifts
+      clonedCanvas.style.backgroundColor = '#ffffff' // Force white background
+
+      // Ensure the cloned document body or container doesn't shift the canvas
+      clonedCanvas.parentElement!.style.padding = '0'
+      clonedCanvas.parentElement!.style.margin = '0'
+      clonedCanvas.parentElement!.style.display = 'block'
+      clonedCanvas.parentElement!.style.width = `${element.offsetWidth}px`
+      clonedCanvas.parentElement!.style.height = `${element.offsetHeight}px`
     }
   }
 })
@@ -39,7 +63,7 @@ export const exportAsPNG = async (elementId: string, filename: string = 'design'
   }
 
   try {
-    const canvas = await html2canvas(element, getExportOptions())
+    const canvas = await html2canvas(element, getExportOptions(element))
 
     const link = document.createElement('a')
     link.download = `${filename}.png`
@@ -58,7 +82,7 @@ export const exportAsJPG = async (elementId: string, filename: string = 'design'
   }
 
   try {
-    const canvas = await html2canvas(element, getExportOptions())
+    const canvas = await html2canvas(element, getExportOptions(element))
 
     const link = document.createElement('a')
     link.download = `${filename}.jpg`
@@ -77,7 +101,7 @@ export const exportAsPDF = async (elementId: string, filename: string = 'design'
   }
 
   try {
-    const canvas = await html2canvas(element, getExportOptions())
+    const canvas = await html2canvas(element, getExportOptions(element))
 
     const imgData = canvas.toDataURL('image/png')
     const pdf = new jsPDF({

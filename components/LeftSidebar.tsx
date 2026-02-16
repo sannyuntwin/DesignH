@@ -119,17 +119,15 @@ export default function LeftSidebar({ activeTab: externalActiveTab, onTabChange 
           <button
             key={tab.id}
             onClick={() => handleTabClick(tab.id)}
-            className={`w-full group relative p-3 flex flex-col items-center justify-center gap-1.5 rounded-2xl transition-all duration-200 hover:scale-[1.02] active:scale-95 ${activeTab === tab.id
+            className={`w-full group relative p-3 flex items-center justify-center rounded-2xl transition-all duration-200 hover:scale-[1.02] active:scale-95 ${activeTab === tab.id
               ? 'bg-blue-600 shadow-lg shadow-blue-500/25 text-white'
               : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
               }`}
+            title={tab.label}
           >
             <div className={`transition-transform duration-200 group-hover:-translate-y-0.5 ${activeTab === tab.id ? 'scale-110' : ''}`}>
               {tab.icon}
             </div>
-            <span className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${activeTab === tab.id ? 'text-blue-50' : 'text-gray-600 dark:text-gray-400'}`}>
-              {tab.label}
-            </span>
 
             {/* Active Indicator Dot (optional, subtle) */}
             {activeTab === tab.id && (
@@ -145,10 +143,11 @@ export default function LeftSidebar({ activeTab: externalActiveTab, onTabChange 
           <button
             key={tab.id}
             onClick={() => handleTabClick(tab.id)}
-            className={`w-full group p-3 flex flex-col items-center justify-center gap-1.5 rounded-2xl transition-all duration-200 hover:scale-[1.02] active:scale-95 ${activeTab === tab.id
+            className={`w-full group p-3 flex items-center justify-center rounded-2xl transition-all duration-200 hover:scale-[1.02] active:scale-95 ${activeTab === tab.id
               ? 'bg-blue-600 shadow-lg shadow-blue-500/25 text-white'
               : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
               }`}
+            title={tab.label}
           >
             <div className="transition-transform duration-200 group-hover:-translate-y-0.5">
               {tab.icon}

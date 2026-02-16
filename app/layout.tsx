@@ -9,6 +9,8 @@ export const metadata = {
   description: 'A powerful design editor with text and image editing capabilities',
 }
 
+import { ToastProvider } from '../components/Toast'
+
 export default function RootLayout({
   children,
 }: {
@@ -18,7 +20,9 @@ export default function RootLayout({
     <html lang="en">
       <body className={inter.className}>
         <ThemeProvider>
-          {children}
+          <ToastProvider>
+            {children}
+          </ToastProvider>
         </ThemeProvider>
       </body>
     </html>

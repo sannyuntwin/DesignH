@@ -15,8 +15,10 @@ import { useCanvasStore, DesignElement } from '../store/canvas-store'
 import { exportAsPNG, exportAsJPG, exportAsPDF } from '../utils/exportUtils'
 import AlignmentTools from './AlignmentTools'
 import ThemeToggle from './ThemeToggle'
+import { useToast } from './Toast'
 
 export default function CanvasToolbar() {
+  const { showToast } = useToast()
   const [selectedColor, setSelectedColor] = useState('#000000')
   const [selectedSize, setSelectedSize] = useState(16)
   const [showExportMenu, setShowExportMenu] = useState(false)
@@ -62,6 +64,7 @@ export default function CanvasToolbar() {
 
   const handleExport = async (format: 'png' | 'jpg' | 'pdf') => {
     setShowExportMenu(false)
+    showToast(`Preparing ${format.toUpperCase()}...`, 'info')
     try {
       const timestamp = new Date().toISOString().slice(0, 19).replace(/[:]/g, '-')
       const filename = `design-${timestamp}`
@@ -77,9 +80,10 @@ export default function CanvasToolbar() {
           await exportAsPDF('design-canvas', filename)
           break
       }
+      showToast(`${format.toUpperCase()} downloaded!`, 'success')
     } catch (error) {
       console.error('Export failed:', error)
-      alert('Export failed. Please try again.')
+      showToast('Export failed. Please try again.', 'error')
     }
   }
 
@@ -150,35 +154,35 @@ export default function CanvasToolbar() {
         <div className="relative">
           <button
             onClick={() => setShowExportMenu(!showExportMenu)}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-500/25 transition-all active:scale-95"
+            className="flex items-center justify-center w-10 h-10 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl shadow-lg shadow-blue-500/25 transition-all active:scale-95"
+            title="Export Design"
           >
-            <Download size={16} />
-            <span>Export</span>
+            <Download size={20} />
           </button>
 
           {/* Export Dropdown Menu */}
           {showExportMenu && (
-            <div className="absolute top-full right-0 mt-3 glass-panel rounded-2xl shadow-xl z-50 min-w-[160px] overflow-hidden p-1 animate-in fade-in slide-in-from-top-2 duration-200">
+            <div className="absolute top-full right-0 mt-3 glass-panel rounded-2xl shadow-xl z-50 min-w-[56px] overflow-hidden p-1 animate-in fade-in slide-in-from-top-2 duration-200 flex flex-col gap-1">
               <button
                 onClick={() => handleExport('png')}
-                className="w-full px-4 py-2.5 text-left text-xs font-semibold hover:bg-blue-500 hover:text-white rounded-xl transition-all flex items-center gap-3 text-gray-700 dark:text-gray-200"
+                className="w-10 h-10 flex items-center justify-center hover:bg-blue-500 hover:text-white rounded-xl transition-all text-gray-700 dark:text-gray-200"
+                title="Download PNG"
               >
-                <FileImage size={16} />
-                <span>Download PNG</span>
+                <FileImage size={20} />
               </button>
               <button
                 onClick={() => handleExport('jpg')}
-                className="w-full px-4 py-2.5 text-left text-xs font-semibold hover:bg-blue-500 hover:text-white rounded-xl transition-all flex items-center gap-3 text-gray-700 dark:text-gray-200"
+                className="w-10 h-10 flex items-center justify-center hover:bg-blue-500 hover:text-white rounded-xl transition-all text-gray-700 dark:text-gray-200"
+                title="Download JPG"
               >
-                <FileImage size={16} />
-                <span>Download JPG</span>
+                <FileImage size={20} />
               </button>
               <button
                 onClick={() => handleExport('pdf')}
-                className="w-full px-4 py-2.5 text-left text-xs font-semibold hover:bg-blue-500 hover:text-white rounded-xl transition-all flex items-center gap-3 text-gray-700 dark:text-gray-200"
+                className="w-10 h-10 flex items-center justify-center hover:bg-blue-500 hover:text-white rounded-xl transition-all text-gray-700 dark:text-gray-200"
+                title="Download PDF"
               >
-                <FileText size={16} />
-                <span>Download PDF</span>
+                <FileText size={20} />
               </button>
             </div>
           )}

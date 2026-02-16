@@ -53,15 +53,15 @@ body {
 
 .design-element {
   cursor: move;
-  transition: transform 0.2s ease;
 }
 
 .design-element:hover {
-  transform: scale(1.02);
+  /* Removed scale on hover to avoid jitter during edit */
+  filter: brightness(1.05);
 }
 
 .design-element.selected {
   outline: 2px solid #3b82f6;
-  outline-offset: 2px;
-  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
+  outline-offset: -1px;
+  /* Inset slightly to ensure it covers the edge perfectly */
 }

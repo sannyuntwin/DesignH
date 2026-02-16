@@ -50,16 +50,24 @@ export default function ZoomControls() {
     }
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === 'Space' && !e.repeat) {
-        e.preventDefault()
-        setIsPanning(true)
-        document.body.style.cursor = 'grab'
+      const target = e.target as HTMLElement
+      const isEditing = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
+
+      if (e.code === 'Space') {
+        // Only prevent default (stop scrolling/panning) if NOT editing text
+        if (!isEditing) {
+          e.preventDefault()
+          if (!e.repeat) {
+            setIsPanning(true)
+            document.body.style.cursor = 'grab'
+          }
+        }
       }
     }
 
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
-        e.preventDefault()
+        // ALWAYS stop panning when Space is released
         setIsPanning(false)
         document.body.style.cursor = 'default'
       }
