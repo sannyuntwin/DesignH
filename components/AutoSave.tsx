@@ -4,33 +4,38 @@ import { useEffect, useRef } from 'react'
 import { useCanvasStore } from '../store/canvas-store'
 import { useThrottle } from '../hooks/usePerformance'
 import { saveDesignToDB, getDesignFromDB, removeDesignFromDB } from '../utils/storageUtils'
-import { supabase } from '../utils/supabase'
+import { useAuth } from '../contexts/AuthContext'
 
 const AUTOSAVE_KEY = 'design-editor-autosave'
-const CLOUD_DESIGN_ID = 'last-design'
+const CLOUD_DESIGN_ID = 'user-autosave'
 
 export default function AutoSave() {
   const lastSaveRef = useRef<string>('')
   const syncTimeoutRef = useRef<NodeJS.Timeout>()
+  const { user, session, loading } = useAuth()
 
   const { pages, currentPageId, saveToHistory } = useCanvasStore()
 
   // Cloud Sync Function
   const syncToCloud = async (data: any) => {
-    if (!process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL === 'your_supabase_project_url') {
+    if (!user || !session || !process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL === 'your_supabase_project_url') {
       return
     }
 
     try {
-      const { error } = await supabase
-        .from('designs')
-        .upsert({
-          id: CLOUD_DESIGN_ID,
-          content: data,
-          updated_at: new Date().toISOString()
-        })
+      const response = await fetch('/api/designs', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ content: data }),
+      })
 
-      if (error) throw error
+      if (!response.ok) {
+        throw new Error('Failed to sync to cloud')
+      }
+
       console.log('Synced to cloud successfully')
     } catch (error) {
       console.warn('Cloud sync failed:', error)
@@ -75,31 +80,53 @@ export default function AutoSave() {
   // Load saved data on mount with migration logic
   useEffect(() => {
     const loadAndMigrate = async () => {
+      console.log('AutoSave: Starting load process...', { user: !!user, session: !!session })
       try {
-        // 1. Try to load from IndexedDB
-        let savedData = await getDesignFromDB(AUTOSAVE_KEY)
+        let savedData = null
 
-        // 2. If not local, try cloud
-        if (!savedData && process.env.NEXT_PUBLIC_SUPABASE_URL !== 'your_supabase_project_url') {
-          console.log('Checking cloud for design data...')
-          const { data, error } = await supabase
-            .from('designs')
-            .select('content')
-            .eq('id', CLOUD_DESIGN_ID)
-            .single()
+        // If user is authenticated, try to load from cloud first
+        if (user && session && process.env.NEXT_PUBLIC_SUPABASE_URL !== 'your_supabase_project_url') {
+          console.log('AutoSave: Loading user designs from cloud...')
+          try {
+            const response = await fetch('/api/designs', {
+              headers: {
+                'Authorization': `Bearer ${session.access_token}`,
+              },
+            })
 
-          if (data?.content) {
-            console.log('Found design in cloud, importing...')
-            savedData = data.content
-            await saveDesignToDB(AUTOSAVE_KEY, savedData)
+            if (response.ok) {
+              const designs = await response.json()
+              console.log('AutoSave: Found designs:', designs?.length || 0)
+              if (designs && designs.length > 0) {
+                // Get most recent design
+                const latestDesign = designs[0]
+                savedData = latestDesign.content
+                console.log('AutoSave: Found design in cloud, loading...')
+              }
+            } else {
+              console.log('AutoSave: No designs found in cloud')
+            }
+          } catch (error) {
+            console.warn('AutoSave: Failed to load from cloud:', error)
+          }
+        } else {
+          console.log('AutoSave: User not authenticated or Supabase not configured')
+        }
+
+        // If no cloud data, try local IndexedDB
+        if (!savedData) {
+          console.log('AutoSave: Checking local storage...')
+          savedData = await getDesignFromDB(AUTOSAVE_KEY)
+          if (savedData) {
+            console.log('AutoSave: Found local data')
           }
         }
 
-        // 3. Check localStorage for migration
+        // Check localStorage for migration
         if (!savedData) {
           const legacyData = localStorage.getItem(AUTOSAVE_KEY)
           if (legacyData) {
-            console.log('Found legacy localStorage data, migrating to IndexedDB...')
+            console.log('AutoSave: Found legacy localStorage data, migrating to IndexedDB...')
             savedData = JSON.parse(legacyData)
             if (savedData) {
               await saveDesignToDB(AUTOSAVE_KEY, savedData)
@@ -109,6 +136,7 @@ export default function AutoSave() {
         }
 
         if (savedData) {
+          console.log('AutoSave: Loading data into canvas...', savedData)
           const parsed = savedData
           const { loadState } = useCanvasStore.getState()
           loadState({
@@ -118,15 +146,23 @@ export default function AutoSave() {
           })
 
           lastSaveRef.current = JSON.stringify(savedData)
-          console.log('Loaded design data successfully')
+          console.log('AutoSave: Design data loaded successfully')
+        } else {
+          console.log('AutoSave: No saved data found')
         }
       } catch (error) {
-        console.error('Failed to load/migrate data:', error)
+        console.error('AutoSave: Failed to load/migrate data:', error)
       }
     }
 
-    loadAndMigrate()
-  }, [])
+    // Only load when user authentication state is determined (not loading)
+    if (!loading) {
+      console.log('AutoSave: Authentication state determined, loading data...')
+      loadAndMigrate()
+    } else {
+      console.log('AutoSave: Still loading authentication...')
+    }
+  }, [user, session, loading])
 
   // Periodic save and beforeunload
   useEffect(() => {

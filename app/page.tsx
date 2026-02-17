@@ -13,6 +13,8 @@ import TemplatesPanel from '../components/TemplatesPanel'
 import ThemeToggle from '../components/ThemeToggle'
 import ShapeToolbar from '../components/ShapeToolbar'
 import ZoomControls from '../components/ZoomControls'
+import AuthButton from '../components/AuthButton'
+import AuthGuard from '../components/AuthGuard'
 
 export default function Home() {
   const [showMobileProperties, setShowMobileProperties] = useState(false)
@@ -20,7 +22,8 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('design')
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900 transition-colors">
+    <AuthGuard>
+      <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900 transition-colors">
       {/* Auto-save (invisible component) */}
       <AutoSave />
 
@@ -42,6 +45,7 @@ export default function Home() {
         </button>
         <h1 className="text-lg font-bold bg-gradient-to-r from-blue-600 to-indigo-500 bg-clip-text text-transparent">Design Editor</h1>
         <div className="flex items-center space-x-2">
+          <AuthButton />
           <button
             onClick={() => setShowMobileProperties(!showMobileProperties)}
             className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
@@ -57,7 +61,10 @@ export default function Home() {
       {/* Desktop Toolbar */}
       <div className="hidden lg:block z-30">
         <div className="glass-panel mx-4 mt-4 rounded-2xl shadow-sm border border-gray-200/50 dark:border-gray-700/50">
-          <CanvasToolbar />
+          <div className="flex items-center justify-between px-6 py-3">
+            <CanvasToolbar />
+            <AuthButton />
+          </div>
         </div>
       </div>
 
@@ -186,5 +193,6 @@ export default function Home() {
         </button>
       </div>
     </div>
+    </AuthGuard>
   )
 }
