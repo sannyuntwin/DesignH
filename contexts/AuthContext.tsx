@@ -1,8 +1,23 @@
 'use client'
 
 import { createContext, useContext, useEffect, useState } from 'react'
-import { User, Session, AuthError } from '@supabase/supabase-js'
-import { supabase } from '../utils/supabase'
+import { authApi } from '@/lib/api'
+
+// Types for our user system
+type User = {
+  id: string
+  email: string
+  name?: string
+}
+
+type Session = {
+  token: string
+  user: User
+}
+
+type AuthError = {
+  message: string
+}
 
 interface AuthContextType {
   user: User | null
@@ -22,59 +37,106 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      setLoading(false)
-    })
-
-    // Listen for auth changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      setUser(session?.user ?? null)
-      setLoading(false)
-    })
-
-    return () => subscription.unsubscribe()
+    // Check for stored session on mount
+    const token = localStorage.getItem('auth_token')
+    if (token) {
+      // In a real app, you'd validate the token here
+      const userData = localStorage.getItem('user_data')
+      if (userData) {
+        try {
+          const user = JSON.parse(userData)
+          setUser(user)
+          setSession({ token, user })
+        } catch (error) {
+          console.error('Failed to parse stored user data:', error)
+          localStorage.removeItem('auth_token')
+          localStorage.removeItem('user_data')
+        }
+      }
+    } else {
+      // Auto-login with mock user for development
+      const mockUser = {
+        id: 'dev-user-123',
+        email: 'dev@example.com',
+        name: 'Developer'
+      }
+      const mockToken = 'dev-token-123'
+      setUser(mockUser)
+      setSession({ token: mockToken, user: mockUser })
+      localStorage.setItem('auth_token', mockToken)
+      localStorage.setItem('user_data', JSON.stringify(mockUser))
+    }
+    setLoading(false)
   }, [])
 
   const signInWithGoogle = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : undefined
-      }
-    })
-    return { error }
+    // TODO: Implement OAuth with Google
+    console.warn('Google sign in not implemented yet.')
+    return { error: { message: 'Google sign in not implemented' } }
   }
 
   const signInWithEmail = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    })
-    return { error }
+    try {
+      const result = await authApi.login({ email, password })
+      
+      if ('error' in result) {
+        return { error: { message: result.error } }
+      }
+      
+      setUser(result.user)
+      setSession({ token: result.session, user: result.user })
+      
+      // Store in localStorage
+      localStorage.setItem('auth_token', result.session)
+      localStorage.setItem('user_data', JSON.stringify(result.user))
+      
+      return { error: null }
+    } catch (error) {
+      return { error: { message: 'Login failed' } }
+    }
   }
 
   const signUpWithEmail = async (email: string, password: string, displayName?: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          display_name: displayName
-        }
+    try {
+      const result = await authApi.signup({ 
+        email, 
+        password, 
+        name: displayName 
+      })
+      
+      if ('error' in result) {
+        return { error: { message: result.error } }
       }
-    })
-    return { error }
+      
+      setUser(result.user)
+      setSession({ token: result.session, user: result.user })
+      
+      // Store in localStorage
+      localStorage.setItem('auth_token', result.session)
+      localStorage.setItem('user_data', JSON.stringify(result.user))
+      
+      return { error: null }
+    } catch (error) {
+      return { error: { message: 'Signup failed' } }
+    }
   }
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut()
-    return { error }
+    try {
+      if (session?.token) {
+        await authApi.logout(session.token)
+      }
+    } catch (error) {
+      console.warn('Logout API call failed:', error)
+    }
+    
+    // Clear local state regardless of API call success
+    setUser(null)
+    setSession(null)
+    localStorage.removeItem('auth_token')
+    localStorage.removeItem('user_data')
+    
+    return { error: null }
   }
 
   const value = {

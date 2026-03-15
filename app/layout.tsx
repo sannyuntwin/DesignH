@@ -1,16 +1,27 @@
 import './globals.css'
-import { Inter } from 'next/font/google'
-import { ThemeProvider } from '../contexts/ThemeContext'
-import { AuthProvider } from '../contexts/AuthContext'
+import { Inter, Space_Grotesk } from 'next/font/google'
+import { ThemeProvider } from '@/contexts/ThemeContext'
+import { AuthProvider } from '@/contexts/AuthContext'
 
-const inter = Inter({ subsets: ['latin'] })
+const inter = Inter({ 
+  subsets: ['latin'],
+  variable: '--font-inter',
+  display: 'swap'
+})
+
+const spaceGrotesk = Space_Grotesk({ 
+  subsets: ['latin'],
+  variable: '--font-space-grotesk',
+  display: 'swap'
+})
 
 export const metadata = {
-  title: 'Design Editor',
-  description: 'A powerful design editor with text and image editing capabilities',
+  title: 'DesignPro - Professional Design Editor',
+  description: 'A powerful professional design editor with text and image editing capabilities',
 }
 
-import { ToastProvider } from '../components/Toast'
+import { ToastProvider } from '@/components/ui/Toast'
+import { DebugClickTracker } from '@/components/DebugClickTracker'
 
 export default function RootLayout({
   children,
@@ -18,8 +29,9 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
+    <html lang="en" className={`${inter.variable} ${spaceGrotesk.variable}`}>
+      <body className="font-inter antialiased">
+        <DebugClickTracker />
         <ThemeProvider>
           <AuthProvider>
             <ToastProvider>

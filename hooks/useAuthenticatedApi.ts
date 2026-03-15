@@ -1,11 +1,10 @@
-import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../utils/supabase'
+import { useAuth } from '@/contexts/AuthContext'
 
 export function useAuthenticatedApi() {
   const { session } = useAuth()
 
   const authenticatedFetch = async (url: string, options: RequestInit = {}) => {
-    if (!session?.access_token) {
+    if (!session?.token) {
       throw new Error('Not authenticated')
     }
 
@@ -13,7 +12,7 @@ export function useAuthenticatedApi() {
       ...options,
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
+        'Authorization': `Bearer ${session.token}`,
         ...options.headers,
       },
     })
@@ -27,20 +26,20 @@ export function useAuthenticatedApi() {
   }
 
   const getDesigns = () => authenticatedFetch('/api/designs')
-  
-  const createDesign = (content: any) => 
+
+  const createDesign = (content: any) =>
     authenticatedFetch('/api/designs', {
       method: 'POST',
       body: JSON.stringify({ content }),
     })
 
-  const updateDesign = (id: string, content: any) => 
+  const updateDesign = (id: string, content: any) =>
     authenticatedFetch('/api/designs', {
       method: 'PUT',
       body: JSON.stringify({ id, content }),
     })
 
-  const deleteDesign = (id: string) => 
+  const deleteDesign = (id: string) =>
     authenticatedFetch(`/api/designs?id=${id}`, {
       method: 'DELETE',
     })

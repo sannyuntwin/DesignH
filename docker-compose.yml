@@ -1,0 +1,56 @@
+services:
+  design-editor:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=development
+      # Database connection
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=designh
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      # JWT Secret
+      - JWT_SECRET=your-secret-key-change-in-production
+      # Supabase is commented out — set real values here to re-enable
+      - NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=
+      - SUPABASE_SERVICE_ROLE_KEY=
+      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    networks:
+      - app-network
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=designh
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./database/extended-schema.sql:/docker-entrypoint-initdb.d/02-extended-schema.sql
+      - ./database/brand-kits-schema.sql:/docker-entrypoint-initdb.d/03-brand-kits-schema.sql
+      - ./database/seed.sql:/docker-entrypoint-initdb.d/04-seed.sql
+    restart: unless-stopped
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+
+networks:
+  app-network:
+    driver: bridge

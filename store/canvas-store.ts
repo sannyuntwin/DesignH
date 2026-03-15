@@ -1,9 +1,45 @@
 import { create } from 'zustand'
 import { v4 as uuidv4 } from 'uuid'
 
+// Helper functions for localStorage
+const loadStateFromStorage = () => {
+  if (typeof window !== 'undefined') {
+    try {
+      const savedState = localStorage.getItem('canvas-state')
+      if (savedState) {
+        return JSON.parse(savedState)
+      }
+    } catch (error) {
+      console.error('Failed to load state from localStorage:', error)
+    }
+  }
+  return null
+}
+
+const saveStateToStorage = (state: any) => {
+  if (typeof window !== 'undefined') {
+    try {
+      // Save only essential data, not entire history
+      const stateToSave = {
+        pages: state.pages,
+        currentPageId: state.currentPageId,
+        selectedElement: state.selectedElement,
+        selectedElements: state.selectedElements,
+        zoomLevel: state.zoomLevel,
+        panOffset: state.panOffset,
+        customFonts: state.customFonts,
+        // Don't save history - it will be rebuilt from current state
+      }
+      localStorage.setItem('canvas-state', JSON.stringify(stateToSave))
+    } catch (error) {
+      console.error('Failed to save state to localStorage:', error)
+    }
+  }
+}
+
 export interface DesignElement {
   id: string
-  type: 'text' | 'image' | 'circle' | 'square' | 'rectangle' | 'triangle' | 'star' | 'heart'
+  type: 'text' | 'image' | 'circle' | 'square' | 'rectangle' | 'triangle' | 'star' | 'heart' | 'oval'
   x: number
   y: number
   width: number
@@ -38,6 +74,19 @@ export interface DesignElement {
   paddingBottom?: number
   paddingLeft?: number
   paddingRight?: number
+  // Advanced text effects
+  boxShadow?: string
+  textShadow?: string
+  textStroke?: string
+  textStrokeColor?: string
+  WebkitBackgroundClip?: string
+  WebkitTextFillColor?: string
+  background?: string
+  // Special text properties
+  isCurved?: boolean
+  curvePath?: string
+  is3D?: boolean
+  isNeon?: boolean
 }
 
 export interface Page {
@@ -52,6 +101,7 @@ interface CanvasStore {
   pages: Page[]
   currentPageId: string | null
   selectedElement: string | null
+  selectedElements: string[] // For multi-select functionality
 
   // History for undo/redo
   history: Page[][]
@@ -73,6 +123,12 @@ interface CanvasStore {
   updateElement: (id: string, updates: Partial<DesignElement>) => void
   deleteElement: (id: string) => void
   selectElement: (id: string | null) => void
+  // Multi-select actions
+  selectMultipleElements: (ids: string[]) => void
+  addToSelection: (id: string) => void
+  removeFromSelection: (id: string) => void
+  clearSelection: () => void
+  deleteSelectedElements: () => void
   updateElementPosition: (id: string, x: number, y: number) => void
   resizeElement: (id: string, width: number, height: number) => void
   clearCanvas: () => void
@@ -88,6 +144,10 @@ interface CanvasStore {
   setPanOffset: (x: number, y: number) => void
   panTo: (x: number, y: number) => void
 
+  // Snapping
+  snapGuides: { x: number | null; y: number | null }
+  setSnapGuides: (x: number | null, y: number | null) => void
+
   // Undo/redo actions
   undo: () => void
   redo: () => void
@@ -102,6 +162,9 @@ interface CanvasStore {
 }
 
 export const useCanvasStore = create<CanvasStore>((set, get) => {
+  // Load saved state from localStorage
+  const savedState = loadStateFromStorage()
+  
   // Create initial page with A4 size (210mm x 297mm at 96 DPI = 794px x 1123px)
   const initialPage: Page = {
     id: uuidv4(),
@@ -112,14 +175,16 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
   }
 
   return {
-    pages: [initialPage],
-    currentPageId: initialPage.id,
-    selectedElement: null,
-    history: [JSON.parse(JSON.stringify([initialPage]))],
-    historyIndex: 0,
-    zoomLevel: 1,
-    panOffset: { x: 0, y: 0 },
-    customFonts: [],
+    pages: savedState?.pages || [initialPage],
+    currentPageId: savedState?.currentPageId || initialPage.id,
+    selectedElement: savedState?.selectedElement || null,
+    selectedElements: savedState?.selectedElements || [],
+    history: savedState?.pages ? [JSON.parse(JSON.stringify(savedState.pages))] : [JSON.parse(JSON.stringify(initialPage))],
+    historyIndex: savedState?.pages ? 0 : 0,
+    zoomLevel: savedState?.zoomLevel || 0.6,
+    panOffset: savedState?.panOffset || { x: 0, y: 0 },
+    customFonts: savedState?.customFonts || [],
+    snapGuides: { x: null, y: null },
 
     addCustomFont: (fontFamily) => {
       set((state) => ({
@@ -199,14 +264,26 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
 
     // Element actions (operate on current page)
     addElement: (element) => {
-      const { currentPageId, saveToHistory } = get()
-      if (!currentPageId) return
+      console.log('addElement called with:', element)
+      const { currentPageId, pages } = get()
+      
+      let targetPageId = currentPageId
+      
+      if (!targetPageId && pages.length > 0) {
+        console.warn('addElement: currentPageId is null, falling back to first page')
+        targetPageId = pages[0].id
+      }
+      
+      if (!targetPageId) {
+        console.error('addElement: No page ID found and no pages available')
+        return
+      }
 
-      // Save state before adding element
-      saveToHistory()
-
-      const currentPage = get().pages.find(page => page.id === currentPageId)
-      if (!currentPage) return
+      const currentPage = pages.find(page => page.id === targetPageId)
+      if (!currentPage) {
+        console.error(`addElement: Current page not found for ID: ${targetPageId}. Available pages:`, pages.map(p => p.id))
+        return
+      }
 
       const maxZIndex = Math.max(0, ...currentPage.elements.map(e => e.zIndex))
 
@@ -224,16 +301,16 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
         ),
         selectedElement: newElement.id,
       }))
+      
+      // Save state after adding element and save to localStorage
+      const { saveToHistory } = get()
+      saveToHistory()
+      saveStateToStorage(get())
     },
 
     updateElement: (id, updates) => {
-      const { currentPageId, saveToHistory } = get()
+      const { currentPageId } = get()
       if (!currentPageId) return
-
-      // Save state before major changes
-      if (Object.keys(updates).length > 0) {
-        saveToHistory()
-      }
 
       set((state) => ({
         pages: state.pages.map(page =>
@@ -247,14 +324,18 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
             : page
         ),
       }))
+      
+      // Save state after update and save to localStorage
+      if (Object.keys(updates).length > 0) {
+        const { saveToHistory } = get()
+        saveToHistory()
+        saveStateToStorage(get())
+      }
     },
 
     deleteElement: (id) => {
-      const { currentPageId, selectedElement, saveToHistory } = get()
+      const { currentPageId, selectedElement } = get()
       if (!currentPageId) return
-
-      // Save state before deletion
-      saveToHistory()
 
       set((state) => ({
         pages: state.pages.map(page =>
@@ -264,10 +345,78 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
         ),
         selectedElement: selectedElement === id ? null : selectedElement,
       }))
+      
+      // Save state after deletion and save to localStorage
+      const { saveToHistory } = get()
+      saveToHistory()
+      saveStateToStorage(get())
     },
 
     selectElement: (id) => {
-      set({ selectedElement: id })
+      set({ selectedElement: id, selectedElements: id ? [id] : [] })
+      
+      // Save to localStorage
+      saveStateToStorage(get())
+    },
+
+    // Multi-select actions
+    selectMultipleElements: (ids) => {
+      set({ selectedElements: ids, selectedElement: ids.length > 0 ? ids[0] : null })
+      
+      // Save to localStorage
+      saveStateToStorage(get())
+    },
+
+    addToSelection: (id) => {
+      const { selectedElements } = get()
+      if (!selectedElements.includes(id)) {
+        set({ 
+          selectedElements: [...selectedElements, id],
+          selectedElement: id 
+        })
+        
+        // Save to localStorage
+        saveStateToStorage(get())
+      }
+    },
+
+    removeFromSelection: (id) => {
+      const { selectedElements } = get()
+      const newSelectedElements = selectedElements.filter(selectedId => selectedId !== id)
+      set({ 
+        selectedElements: newSelectedElements,
+        selectedElement: newSelectedElements.length > 0 ? newSelectedElements[0] : null
+      })
+      
+      // Save to localStorage
+      saveStateToStorage(get())
+    },
+
+    clearSelection: () => {
+      set({ selectedElements: [], selectedElement: null })
+      
+      // Save to localStorage
+      saveStateToStorage(get())
+    },
+
+    deleteSelectedElements: () => {
+      const { currentPageId, selectedElements } = get()
+      if (!currentPageId || selectedElements.length === 0) return
+
+      set((state) => ({
+        pages: state.pages.map(page =>
+          page.id === currentPageId
+            ? { ...page, elements: page.elements.filter(el => !selectedElements.includes(el.id)) }
+            : page
+        ),
+        selectedElements: [],
+        selectedElement: null,
+      }))
+      
+      // Save state after deletion and save to localStorage
+      const { saveToHistory } = get()
+      saveToHistory()
+      saveStateToStorage(get())
     },
 
     updateElementPosition: (id, x, y) => {
@@ -289,6 +438,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
         )
         return { pages: updatedPages }
       })
+      
+      // Save to localStorage
+      saveStateToStorage(get())
     },
 
     resizeElement: (id, width, height) => {
@@ -310,6 +462,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
             : page
         ),
       }))
+      
+      // Save to localStorage
+      saveStateToStorage(get())
     },
 
     clearCanvas: () => {
@@ -464,6 +619,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
       set((state) => ({
         panOffset: { x: state.panOffset.x + x, y: state.panOffset.y + y }
       }))
+    },
+
+    setSnapGuides: (x, y) => {
+      set({ snapGuides: { x, y } })
     },
   }
 })

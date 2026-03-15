@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { useAuth } from '../../../contexts/AuthContext'
+import { useAuth } from '@/contexts/AuthContext'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -44,35 +44,39 @@ export default function LoginPage() {
 
   return (
     <div className="auth-card">
-      <div className="text-center mb-8">
-        <h1 className="auth-title">Welcome Back</h1>
-        <p className="auth-subtitle">Sign in to access your designs</p>
+      <div className="auth-logo">
+        <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
       </div>
+      
+      <h1 className="auth-title">Welcome back</h1>
+      <p className="auth-subtitle">Sign in to continue to your account</p>
 
       {error && (
-        <div className="auth-error mb-6">
+        <div className="auth-error">
           {error}
         </div>
       )}
 
       <form onSubmit={handleEmailLogin} className="auth-form">
-        <div>
-          <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Email
+        <div className="form-group">
+          <label htmlFor="email" className="label">
+            Email address
           </label>
           <input
             id="email"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="auth-input"
+            className="input"
             placeholder="Enter your email"
             required
           />
         </div>
 
-        <div>
-          <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+        <div className="form-group">
+          <label htmlFor="password" className="label">
             Password
           </label>
           <input
@@ -80,7 +84,7 @@ export default function LoginPage() {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="auth-input"
+            className="input"
             placeholder="Enter your password"
             required
           />
@@ -89,20 +93,20 @@ export default function LoginPage() {
         <button
           type="submit"
           disabled={loading}
-          className="auth-button disabled:opacity-50 disabled:cursor-not-allowed"
+          className="auth-button"
         >
-          {loading ? 'Signing in...' : 'Sign In'}
+          {loading ? 'Signing in...' : 'Sign in'}
         </button>
       </form>
 
       <div className="auth-divider">
-        <span>OR</span>
+        <span>or continue with</span>
       </div>
 
       <button
         onClick={handleGoogleLogin}
         disabled={loading}
-        className="auth-button-secondary disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+        className="auth-button-secondary"
       >
         <svg className="w-5 h-5" viewBox="0 0 24 24">
           <path
@@ -122,10 +126,10 @@ export default function LoginPage() {
             d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
           />
         </svg>
-        <span>Continue with Google</span>
+        Google
       </button>
 
-      <p className="text-center mt-6 text-gray-600 dark:text-gray-400">
+      <p className="auth-footer">
         Don't have an account?{' '}
         <Link href="/auth/register" className="auth-link">
           Sign up

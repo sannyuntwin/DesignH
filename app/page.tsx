@@ -1,198 +1,229 @@
 'use client'
 
-import { useState } from 'react'
-import DesignCanvas from '../components/DesignCanvas'
-import CanvasToolbar from '../components/CanvasToolbar'
-import LeftSidebar from '../components/LeftSidebar'
-import ToolSidebar from '../components/ToolSidebar'
-import PageNavigation from '../components/PageNavigation'
-import AlignmentTools from '../components/AlignmentTools'
-import KeyboardShortcuts from '../components/KeyboardShortcuts'
-import AutoSave from '../components/AutoSave'
-import TemplatesPanel from '../components/TemplatesPanel'
-import ThemeToggle from '../components/ThemeToggle'
-import ShapeToolbar from '../components/ShapeToolbar'
-import ZoomControls from '../components/ZoomControls'
-import AuthButton from '../components/AuthButton'
-import AuthGuard from '../components/AuthGuard'
+// Landing page for DesignPro
+// Shows overview and navigation to main features
 
-export default function Home() {
-  const [showMobileProperties, setShowMobileProperties] = useState(false)
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState('design')
+import Link from 'next/link'
+import {
+  Palette,
+  Layout,
+  Image,
+  Type,
+  Zap,
+  Users,
+  Star,
+  ArrowRight,
+  CheckCircle,
+  Sparkles,
+} from 'lucide-react'
+import AuthButton from '@/components/auth/AuthButton'
+import AuthGuard from '@/components/auth/AuthGuard'
 
+export default function LandingPage() {
   return (
     <AuthGuard>
-      <div className="h-screen flex flex-col bg-gray-50 dark:bg-gray-900 transition-colors">
-      {/* Auto-save (invisible component) */}
-      <AutoSave />
-
-      {/* Keyboard Shortcuts */}
-      <KeyboardShortcuts />
-
-      {/* Zoom Controls */}
-      <ZoomControls />
-
-      {/* Mobile Header */}
-      <div className="lg:hidden glass-panel px-4 py-3 flex items-center justify-between z-40">
-        <button
-          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-          className="p-2 rounded-xl hover:bg-gray-100/50 dark:hover:bg-gray-800/50 text-gray-700 dark:text-gray-300 transition-all active:scale-90"
-        >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        </button>
-        <h1 className="text-lg font-bold bg-gradient-to-r from-blue-600 to-indigo-500 bg-clip-text text-transparent">Design Editor</h1>
-        <div className="flex items-center space-x-2">
-          <AuthButton />
-          <button
-            onClick={() => setShowMobileProperties(!showMobileProperties)}
-            className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
-          >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0 4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-            </svg>
-          </button>
-          <ThemeToggle />
-        </div>
-      </div>
-
-      {/* Desktop Toolbar */}
-      <div className="hidden lg:block z-30">
-        <div className="glass-panel mx-4 mt-4 rounded-2xl shadow-sm border border-gray-200/50 dark:border-gray-700/50">
-          <div className="flex items-center justify-between px-6 py-3">
-            <CanvasToolbar />
-            <AuthButton />
-          </div>
-        </div>
-      </div>
-
-      {/* Mobile Toolbar - Simplified */}
-      <div className="lg:hidden glass-panel m-2 rounded-xl px-2 py-1 flex items-center justify-between overflow-x-auto shadow-sm">
-        <div className="flex items-center space-x-1">
-          <button className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-sm text-gray-700 dark:text-gray-300">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-          </button>
-          <button className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-sm text-gray-700 dark:text-gray-300">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-            </svg>
-          </button>
-          <button className="p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-sm text-gray-700 dark:text-gray-300">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
-      <div className="flex flex-1 overflow-hidden p-4 gap-4">
-        {/* Left Sidebar - Desktop */}
-        <div className="hidden lg:flex sidebar-desktop bg-white/50 dark:bg-gray-900/50 backdrop-blur-md border border-gray-200 dark:border-gray-800 rounded-3xl overflow-hidden shadow-sm transition-all duration-300">
-          <LeftSidebar activeTab={activeTab} onTabChange={setActiveTab} />
-          {(activeTab === 'design' || activeTab === 'elements') && (
-            <div className="w-64 border-l border-gray-200/50 dark:border-gray-800/50 transition-colors bg-white/30 dark:bg-gray-800/20">
-              {activeTab === 'elements' ? <ShapeToolbar /> : <TemplatesPanel />}
-            </div>
-          )}
-        </div>
-
-        {/* Mobile Menu Overlay */}
-        {mobileMenuOpen && (
-          <div
-            className="lg:hidden fixed inset-0 bg-black bg-opacity-50 z-40"
-            onClick={() => setMobileMenuOpen(false)}
-          />
-        )}
-
-        {/* Left Sidebar - Mobile */}
-        <div className={`lg:hidden sidebar-mobile fixed top-0 left-0 h-full w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transform transition-transform duration-300 z-50 ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-          <div className="lg:hidden flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="font-semibold text-gray-900 dark:text-gray-100">Tools</h2>
-            <button
-              onClick={() => setMobileMenuOpen(false)}
-              className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            <LeftSidebar activeTab={activeTab} onTabChange={setActiveTab} />
-          </div>
-        </div>
-
-        {/* Main Content Area */}
-        <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-gray-800/40 rounded-3xl border border-gray-200 dark:border-gray-800 shadow-inner group">
-          {/* Page Navigation - Responsive */}
-          <div className="bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm border-b border-gray-100 dark:border-gray-800/50 px-6 py-3">
-            <div className="flex items-center justify-between">
-              <div className="flex-1 min-w-0">
-                <PageNavigation />
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-50">
+        {/* Header */}
+        <header className="bg-white/80 backdrop-blur-xl border-b border-gray-200/50">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between h-16">
+              <div className="flex items-center">
+                <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
+                  <span className="text-xl">🎨</span>
+                </div>
+                <span className="ml-3 font-display text-xl text-slate-900">DesignPro</span>
               </div>
-              <div className="hidden sm:block ml-4">
-                <AlignmentTools />
-              </div>
+              <nav className="flex items-center space-x-6">
+                <Link href="/dashboard" className="text-gray-600 hover:text-gray-900">Dashboard</Link>
+                <Link href="/templates" className="text-gray-600 hover:text-gray-900">Templates</Link>
+                <AuthButton />
+              </nav>
             </div>
           </div>
+        </header>
 
-          {/* Canvas Container - Responsive */}
-          <div className="flex-1 overflow-auto p-8 canvas-workspace-grid relative">
-            <div className="flex justify-center items-center min-h-full">
-              <div className="w-full max-w-4xl">
-                <DesignCanvas
-                  width={typeof window !== 'undefined' && window.innerWidth < 768
-                    ? Math.min(window.innerWidth - 32, 600)
-                    : undefined}
-                  height={typeof window !== 'undefined' && window.innerWidth < 768
-                    ? Math.min(window.innerHeight - 200, 400)
-                    : undefined}
-                />
+        {/* Hero Section */}
+        <section className="py-20 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-7xl mx-auto text-center">
+            <div className="flex justify-center mb-6">
+              <div className="p-3 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl">
+                <Sparkles className="w-8 h-8 text-white" />
               </div>
             </div>
+            <h1 className="text-5xl font-bold text-gray-900 mb-6">
+              Professional Design
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-purple-600">
+                {' '}Made Simple
+              </span>
+            </h1>
+            <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
+              Create stunning designs with our powerful editor. From social media posts to presentations, 
+                  DesignPro has everything you need to bring your ideas to life.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <Link
+                href="/editor"
+                className="inline-flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl hover:from-indigo-600 hover:to-purple-700 transition-all duration-200 shadow-lg hover:shadow-xl"
+              >
+                <Layout className="w-5 h-5" />
+                Start Creating
+              </Link>
+              <Link
+                href="/templates"
+                className="inline-flex items-center gap-2 px-8 py-4 bg-white border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-all duration-200"
+              >
+                <Image className="w-5 h-5" />
+                Browse Templates
+              </Link>
+            </div>
           </div>
-        </div>
+        </section>
 
-        {/* Right Sidebar - Desktop */}
-        <div className="hidden xl:block w-80 bg-white/50 dark:bg-gray-900/50 backdrop-blur-md border border-gray-200 dark:border-gray-800 rounded-3xl overflow-hidden shadow-sm">
-          <ToolSidebar />
-        </div>
+        {/* Features Grid */}
+        <section className="py-20 px-4 sm:px-6 lg:px-8 bg-white">
+          <div className="max-w-7xl mx-auto">
+            <div className="text-center mb-16">
+              <h2 className="text-3xl font-bold text-gray-900 mb-4">Everything You Need</h2>
+              <p className="text-lg text-gray-600">Professional tools for every design need</p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              <FeatureCard
+                icon={<Palette className="w-6 h-6" />}
+                title="Advanced Design Tools"
+                description="Professional-grade editing with layers, effects, and precision controls"
+              />
+              <FeatureCard
+                icon={<Type className="w-6 h-6" />}
+                title="Text Effects & Typography"
+                description="Curved text, gradients, shadows, and hundreds of fonts to choose from"
+              />
+              <FeatureCard
+                icon={<Image className="w-6 h-6" />}
+                title="Stock Photos & Assets"
+                description="Access thousands of professional images and design elements"
+              />
+              <FeatureCard
+                icon={<Zap className="w-6 h-6" />}
+                title="Magic Resize"
+                description="Instantly resize your designs for any platform or format"
+              />
+              <FeatureCard
+                icon={<Users className="w-6 h-6" />}
+                title="Team Collaboration"
+                description="Work together in real-time with comments and shared workspaces"
+              />
+              <FeatureCard
+                icon={<Star className="w-6 h-6" />}
+                title="Brand Kits"
+                description="Maintain brand consistency with custom colors, fonts, and logos"
+              />
+            </div>
+          </div>
+        </section>
 
-        {/* Right Sidebar - Mobile (Bottom Sheet) */}
-        <div className={`lg:hidden fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 transform transition-transform duration-300 z-30 ${showMobileProperties ? 'translate-y-0' : 'translate-y-full'}`}>
-          <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="font-semibold text-gray-900 dark:text-gray-100">Properties</h2>
-            <button
-              onClick={() => setShowMobileProperties(false)}
-              className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
+        {/* Quick Actions */}
+        <section className="py-20 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-7xl mx-auto">
+            <div className="text-center mb-16">
+              <h2 className="text-3xl font-bold text-gray-900 mb-4">Get Started Now</h2>
+              <p className="text-lg text-gray-600">Choose how you want to create</p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <ActionCard
+                title="Start from Scratch"
+                description="Create a new design with a blank canvas"
+                icon={<Layout className="w-8 h-8" />}
+                href="/editor"
+                color="blue"
+              />
+              <ActionCard
+                title="Use Templates"
+                description="Browse professional templates to get started fast"
+                icon={<Image className="w-8 h-8" />}
+                href="/templates"
+                color="green"
+              />
+              <ActionCard
+                title="View Dashboard"
+                description="Manage your existing designs and projects"
+                icon={<Palette className="w-8 h-8" />}
+                href="/dashboard"
+                color="purple"
+              />
+            </div>
           </div>
-          <div className="h-64 overflow-y-auto">
-            <ToolSidebar />
+        </section>
+
+        {/* Footer */}
+        <footer className="bg-gray-900 text-white py-12 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-7xl mx-auto text-center">
+            <div className="flex items-center justify-center mb-4">
+              <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center">
+                <span className="text-xl">🎨</span>
+              </div>
+              <span className="ml-3 font-display text-xl">DesignPro</span>
+            </div>
+            <p className="text-gray-400">Professional Design Editor</p>
           </div>
-        </div>
+        </footer>
       </div>
-
-      {/* Mobile Floating Action Button */}
-      <div className="lg:hidden fixed bottom-4 right-4 z-20">
-        <button
-          onClick={() => setShowMobileProperties(!showMobileProperties)}
-          className="bg-blue-500 text-white rounded-full p-4 shadow-lg hover:bg-blue-600 transition-colors"
-        >
-          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0 4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
-          </svg>
-        </button>
-      </div>
-    </div>
     </AuthGuard>
+  )
+}
+
+// Feature Card Component
+interface FeatureCardProps {
+  icon: React.ReactNode
+  title: string
+  description: string
+}
+
+function FeatureCard({ icon, title, description }: FeatureCardProps) {
+  return (
+    <div className="p-6 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors">
+      <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center text-white mb-4">
+        {icon}
+      </div>
+      <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
+      <p className="text-gray-600">{description}</p>
+    </div>
+  )
+}
+
+// Action Card Component
+interface ActionCardProps {
+  title: string
+  description: string
+  icon: React.ReactNode
+  href: string
+  color: 'blue' | 'green' | 'purple'
+}
+
+function ActionCard({ title, description, icon, href, color }: ActionCardProps) {
+  const colorClasses = {
+    blue: 'from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700',
+    green: 'from-green-500 to-green-600 hover:from-green-600 hover:to-green-700',
+    purple: 'from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700',
+  }
+
+  return (
+    <Link
+      href={href}
+      className={`block p-8 bg-gradient-to-br ${colorClasses[color]} text-white rounded-xl transition-all duration-200 hover:shadow-xl hover:scale-105`}
+    >
+      <div className="flex flex-col items-center text-center">
+        <div className="w-16 h-16 bg-white/20 rounded-lg flex items-center justify-center mb-4">
+          {icon}
+        </div>
+        <h3 className="text-xl font-semibold mb-2">{title}</h3>
+        <p className="text-white/90">{description}</p>
+        <div className="flex items-center gap-2 mt-4">
+          <span className="text-sm font-medium">Get Started</span>
+          <ArrowRight className="w-4 h-4" />
+        </div>
+      </div>
+    </Link>
   )
 }
