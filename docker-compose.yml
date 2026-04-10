@@ -1,34 +1,45 @@
 services:
-  design-editor:
+  # web:
+  #   build:
+  #     context: ./web
+  #     dockerfile: Dockerfile.dev
+  #   ports:
+  #     - "3000:3000"
+  #   environment:
+  #     - NODE_ENV=development
+  #     - NEXT_PUBLIC_API_URL=http://server:8000
+  #     - NEXT_PUBLIC_APP_URL=http://localhost:3000
+  #     - NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
+  #     - NEXT_PUBLIC_SUPABASE_ANON_KEY=
+  #     - SUPABASE_SERVICE_ROLE_KEY=
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - server
+  #   networks:
+  #     - app-network
+  #   volumes:
+  #     - ./web:/app
+  #     - /app/node_modules
+  #     - /app/.next
+
+  server:
     build:
-      context: .
-      dockerfile: Dockerfile.dev
+      context: ./server
+      dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "8000:8000"
     environment:
-      - NODE_ENV=development
-      # Database connection
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=designh
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-      # JWT Secret
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/designh
       - JWT_SECRET=your-secret-key-change-in-production
-      # Supabase is commented out — set real values here to re-enable
-      - NEXT_PUBLIC_SUPABASE_URL=your_supabase_project_url
-      - NEXT_PUBLIC_SUPABASE_ANON_KEY=
-      - SUPABASE_SERVICE_ROLE_KEY=
-      - NEXT_PUBLIC_APP_URL=http://localhost:3000
+      - JWT_ALGORITHM=HS256
+      - DEBUG=True
     restart: unless-stopped
     depends_on:
       - postgres
     networks:
       - app-network
     volumes:
-      - .:/app
-      - /app/node_modules
-      - /app/.next
+      - ./server:/app
 
   postgres:
     image: postgres:15-alpine
