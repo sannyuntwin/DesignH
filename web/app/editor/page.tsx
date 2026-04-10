@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import DesignCanvas, { CanvasTextBox } from "@/components/editor/DesignCanvas";
@@ -132,7 +132,7 @@ function loadInitialEditorDoc(preset: string, width: number, height: number): St
   }
 }
 
-export default function EditorPage() {
+function EditorPageContent() {
   const searchParams = useSearchParams();
 
   const label = searchParams.get("label") || DEFAULT_PAGE.label;
@@ -582,5 +582,13 @@ export default function EditorPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+export default function EditorPage() {
+  return (
+    <Suspense fallback={<main className="min-h-screen bg-slate-50" />}>
+      <EditorPageContent />
+    </Suspense>
   );
 }

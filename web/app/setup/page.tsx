@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { clearAuthSession, readAuthSession } from "@/lib/auth-session";
 import {
@@ -15,7 +15,7 @@ import {
 const CUSTOM_PRESET_ID = "custom";
 const FORCE_PICK_QUERY = "pick";
 
-export default function Home() {
+function SetupPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const forcePick = searchParams.get(FORCE_PICK_QUERY) === "1";
@@ -241,5 +241,13 @@ export default function Home() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function SetupPage() {
+  return (
+    <Suspense fallback={<main className="min-h-screen bg-slate-50" />}>
+      <SetupPageContent />
+    </Suspense>
   );
 }
