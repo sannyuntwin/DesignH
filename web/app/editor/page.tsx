@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import DesignCanvas, { CanvasImageBox, CanvasTextBox } from "@/components/editor/DesignCanvas";
+import DesignCanvas, { CanvasImageBox, CanvasShapeBox, CanvasShapeKind, CanvasTextBox } from "@/components/editor/DesignCanvas";
 import { readAuthSession } from "@/lib/auth-session";
 import { DEFAULT_PAGE, Orientation, PAGE_PREF_KEY, SavedPagePreference, parseDimension } from "@/lib/page-sizes";
 import { exportDesignAsImage, exportDesignAsPdf } from "@/lib/design-export";
@@ -13,14 +13,43 @@ type CanvasPage = {
   width: number;
   height: number;
   backgroundColor: string;
+  gradientEnabled: boolean;
+  gradientDirection: "vertical" | "horizontal";
+  gradientColors: [string, string, string];
+  borderWidth: number;
+  borderColor: string;
+  borderGradientEnabled: boolean;
+  borderGradientDirection: "vertical" | "horizontal";
+  borderGradientColors: [string, string, string];
   showGrid: boolean;
   imageBoxes: CanvasImageBox[];
+  shapeBoxes: CanvasShapeBox[];
   textBoxes: CanvasTextBox[];
 };
 
 const THUMBNAIL_MAX_WIDTH = 76;
 const THUMBNAIL_MAX_HEIGHT = 108;
 const EDITOR_DOC_KEY_PREFIX = "design-editor-doc-v1";
+const DEFAULT_GRADIENT_COLORS = ["#f8fafc", "#e2e8f0", "#cbd5e1"] as const;
+const DEFAULT_BORDER_GRADIENT_COLORS = ["#0f172a", "#475569", "#0f172a"] as const;
+const DEFAULT_SHAPE_GRADIENT_COLORS = ["#38bdf8", "#22d3ee", "#818cf8"] as const;
+const SHAPE_KIND_OPTIONS: readonly CanvasShapeKind[] = ["square", "circle", "triangle"];
+const FONT_FAMILY_OPTIONS = [
+  "Arial",
+  "Georgia",
+  "Times New Roman",
+  "Verdana",
+  "Trebuchet MS",
+  "Tahoma",
+  "Courier New",
+  "Impact",
+] as const;
+type UploadedFontFormat = "woff2" | "woff" | "truetype" | "opentype";
+type UploadedFont = {
+  family: string;
+  source: string;
+  format?: UploadedFontFormat;
+};
 
 function createPageId() {
   return `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -32,6 +61,10 @@ function createTextId() {
 
 function createImageId() {
   return `i_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createShapeId() {
+  return `s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -47,8 +80,130 @@ function getDocStorageKey(preset: string, width: number, height: number) {
   return `${EDITOR_DOC_KEY_PREFIX}:${preset}:${width}x${height}`;
 }
 
+function sanitizeHexColor(value: unknown, fallback: string) {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  return /^#(?:[0-9a-fA-F]{3}){1,2}$/.test(trimmed) ? trimmed : fallback;
+}
+
+function sanitizeFontName(value: unknown) {
+  if (typeof value !== "string") return null;
+  const cleaned = value.trim().replace(/\s+/g, " ");
+  if (!cleaned) return null;
+  return cleaned.slice(0, 80);
+}
+
+function mergeFontOptions(...groups: readonly (readonly string[] | string[])[]) {
+  const seen = new Set<string>();
+  const merged: string[] = [];
+
+  for (const group of groups) {
+    for (const item of group) {
+      const font = sanitizeFontName(item);
+      if (!font) continue;
+      const key = font.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(font);
+    }
+  }
+
+  return merged;
+}
+
+function sanitizeUploadedFonts(value: unknown): UploadedFont[] {
+  if (!Array.isArray(value)) return [];
+
+  const next: UploadedFont[] = [];
+  const seen = new Set<string>();
+
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object") continue;
+    const family = sanitizeFontName((raw as { family?: unknown }).family);
+    const source = typeof (raw as { source?: unknown }).source === "string" ? (raw as { source: string }).source.trim() : "";
+    const formatRaw = (raw as { format?: unknown }).format;
+    const format =
+      formatRaw === "woff2" || formatRaw === "woff" || formatRaw === "truetype" || formatRaw === "opentype"
+        ? formatRaw
+        : undefined;
+
+    if (!family || !source.startsWith("data:")) continue;
+    const key = family.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push({ family, source, format });
+  }
+
+  return next;
+}
+
+function upsertUploadedFont(existing: UploadedFont[], incoming: UploadedFont) {
+  const key = incoming.family.toLowerCase();
+  const filtered = existing.filter((font) => font.family.toLowerCase() !== key);
+  return [...filtered, incoming];
+}
+
+function inferFontFormat(file: File): UploadedFontFormat | undefined {
+  const ext = file.name.toLowerCase().split(".").pop();
+  if (ext === "woff2") return "woff2";
+  if (ext === "woff") return "woff";
+  if (ext === "ttf") return "truetype";
+  if (ext === "otf") return "opentype";
+
+  const mime = file.type.toLowerCase();
+  if (mime.includes("woff2")) return "woff2";
+  if (mime.includes("woff")) return "woff";
+  if (mime.includes("ttf") || mime.includes("truetype")) return "truetype";
+  if (mime.includes("otf") || mime.includes("opentype")) return "opentype";
+
+  return undefined;
+}
+
+function escapeCssString(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function toFontFamilyCss(value: string) {
+  return `"${escapeCssString(value)}", Arial, sans-serif`;
+}
+
+function sanitizeGradientColors(value: unknown, fallback: readonly [string, string, string]): [string, string, string] {
+  const raw = Array.isArray(value) ? value : [];
+  return [
+    sanitizeHexColor(raw[0], fallback[0]),
+    sanitizeHexColor(raw[1], fallback[1]),
+    sanitizeHexColor(raw[2], fallback[2]),
+  ];
+}
+
+function getPageGradientCss(page: {
+  gradientEnabled: boolean;
+  gradientDirection: "vertical" | "horizontal";
+  gradientColors: [string, string, string];
+}) {
+  if (!page.gradientEnabled) return undefined;
+  const [start, middle, end] = page.gradientColors;
+  const direction = page.gradientDirection === "horizontal" ? "to right" : "to bottom";
+  return `linear-gradient(${direction}, ${start} 0%, ${middle} 50%, ${end} 100%)`;
+}
+
+function getBorderGradientCss(page: {
+  borderGradientEnabled: boolean;
+  borderGradientDirection: "vertical" | "horizontal";
+  borderGradientColors: [string, string, string];
+}) {
+  if (!page.borderGradientEnabled) return undefined;
+  const [start, middle, end] = page.borderGradientColors;
+  const direction = page.borderGradientDirection === "horizontal" ? "to right" : "to bottom";
+  return `linear-gradient(${direction}, ${start} 0%, ${middle} 50%, ${end} 100%)`;
+}
+
 function sanitizeTextBox(input: Partial<CanvasTextBox>, fallbackLayer: number): CanvasTextBox {
   const fontWeight = input.fontWeight === "400" || input.fontWeight === "700" ? input.fontWeight : "700";
+  const fontFamily =
+    typeof input.fontFamily === "string" && input.fontFamily.trim()
+      ? input.fontFamily.trim()
+      : FONT_FAMILY_OPTIONS[0];
   const textAlign =
     input.textAlign === "left" || input.textAlign === "center" || input.textAlign === "right"
       ? input.textAlign
@@ -61,6 +216,7 @@ function sanitizeTextBox(input: Partial<CanvasTextBox>, fallbackLayer: number): 
     width: clamp(toSafeNumber(input.width, 260), 120, 5000),
     height: clamp(toSafeNumber(input.height, 90), 48, 5000),
     text: typeof input.text === "string" ? input.text : "New text",
+    fontFamily,
     fontSize: clamp(toSafeNumber(input.fontSize, 42), 8, 220),
     fontWeight,
     textAlign,
@@ -84,20 +240,55 @@ function sanitizeImageBox(input: Partial<CanvasImageBox>, fallbackLayer: number)
   };
 }
 
+function sanitizeShapeBox(input: Partial<CanvasShapeBox>, fallbackLayer: number): CanvasShapeBox {
+  const shapeType: CanvasShapeKind =
+    input.shapeType === "circle" || input.shapeType === "triangle" || input.shapeType === "square"
+      ? input.shapeType
+      : "square";
+
+  return {
+    id: typeof input.id === "string" ? input.id : createShapeId(),
+    x: clamp(toSafeNumber(input.x, 40), 0, 5000),
+    y: clamp(toSafeNumber(input.y, 40), 0, 5000),
+    width: clamp(toSafeNumber(input.width, 180), 40, 5000),
+    height: clamp(toSafeNumber(input.height, 180), 40, 5000),
+    shapeType,
+    fillColor: sanitizeHexColor(input.fillColor, "#38bdf8"),
+    gradientEnabled: typeof input.gradientEnabled === "boolean" ? input.gradientEnabled : false,
+    gradientDirection: input.gradientDirection === "horizontal" ? "horizontal" : "vertical",
+    gradientColors: sanitizeGradientColors(input.gradientColors, DEFAULT_SHAPE_GRADIENT_COLORS),
+    strokeColor: sanitizeHexColor(input.strokeColor, "#0f172a"),
+    strokeWidth: clamp(toSafeNumber(input.strokeWidth ?? 2, 2), 0, 80),
+    rotation: clamp(toSafeNumber(input.rotation ?? 0, 0), -180, 180),
+    layer: clamp(Math.round(toSafeNumber(input.layer ?? fallbackLayer, fallbackLayer)), 1, 100000),
+  };
+}
+
 function sanitizePage(input: Partial<CanvasPage>, fallbackWidth: number, fallbackHeight: number): CanvasPage {
   const rawImageBoxes = Array.isArray(input.imageBoxes) ? input.imageBoxes : [];
+  const rawShapeBoxes = Array.isArray(input.shapeBoxes) ? input.shapeBoxes : [];
   const rawTextBoxes = Array.isArray(input.textBoxes) ? input.textBoxes : [];
   const imageBoxes = rawImageBoxes
     .map((box, index) => sanitizeImageBox(box, index + 1))
     .filter((box) => Boolean(box.src));
-  const textBoxes = rawTextBoxes.map((box, index) => sanitizeTextBox(box, imageBoxes.length + index + 1));
+  const shapeBoxes = rawShapeBoxes.map((box, index) => sanitizeShapeBox(box, imageBoxes.length + index + 1));
+  const textBoxes = rawTextBoxes.map((box, index) => sanitizeTextBox(box, imageBoxes.length + shapeBoxes.length + index + 1));
   return {
     id: typeof input.id === "string" ? input.id : createPageId(),
     width: clamp(toSafeNumber(input.width, fallbackWidth), 100, 5000),
     height: clamp(toSafeNumber(input.height, fallbackHeight), 100, 5000),
-    backgroundColor: typeof input.backgroundColor === "string" ? input.backgroundColor : "#ffffff",
+    backgroundColor: sanitizeHexColor(input.backgroundColor, "#ffffff"),
+    gradientEnabled: typeof input.gradientEnabled === "boolean" ? input.gradientEnabled : false,
+    gradientDirection: input.gradientDirection === "horizontal" ? "horizontal" : "vertical",
+    gradientColors: sanitizeGradientColors(input.gradientColors, DEFAULT_GRADIENT_COLORS),
+    borderWidth: clamp(toSafeNumber(input.borderWidth, 0), 0, 200),
+    borderColor: sanitizeHexColor(input.borderColor, "#0f172a"),
+    borderGradientEnabled: typeof input.borderGradientEnabled === "boolean" ? input.borderGradientEnabled : false,
+    borderGradientDirection: input.borderGradientDirection === "horizontal" ? "horizontal" : "vertical",
+    borderGradientColors: sanitizeGradientColors(input.borderGradientColors, DEFAULT_BORDER_GRADIENT_COLORS),
     showGrid: typeof input.showGrid === "boolean" ? input.showGrid : true,
     imageBoxes,
+    shapeBoxes,
     textBoxes,
   };
 }
@@ -107,6 +298,9 @@ type StoredEditorDoc = {
   activePageId: string;
   selectedTextId: string | null;
   selectedImageId: string | null;
+  selectedShapeId: string | null;
+  customFonts: string[];
+  uploadedFonts: UploadedFont[];
 };
 
 function createFallbackEditorDoc(width: number, height: number): StoredEditorDoc {
@@ -115,8 +309,17 @@ function createFallbackEditorDoc(width: number, height: number): StoredEditorDoc
     width,
     height,
     backgroundColor: "#ffffff",
+    gradientEnabled: false,
+    gradientDirection: "vertical",
+    gradientColors: [...DEFAULT_GRADIENT_COLORS],
+    borderWidth: 0,
+    borderColor: "#0f172a",
+    borderGradientEnabled: false,
+    borderGradientDirection: "vertical",
+    borderGradientColors: [...DEFAULT_BORDER_GRADIENT_COLORS],
     showGrid: true,
     imageBoxes: [],
+    shapeBoxes: [],
     textBoxes: [],
   };
 
@@ -125,6 +328,9 @@ function createFallbackEditorDoc(width: number, height: number): StoredEditorDoc
     activePageId: fallbackPage.id,
     selectedTextId: null,
     selectedImageId: null,
+    selectedShapeId: null,
+    customFonts: [],
+    uploadedFonts: [],
   };
 }
 
@@ -159,8 +365,14 @@ function loadInitialEditorDoc(preset: string, width: number, height: number): St
       typeof parsed.selectedImageId === "string" && pages.some((p) => p.imageBoxes.some((b) => b.id === parsed.selectedImageId))
         ? parsed.selectedImageId
         : null;
+    const selectedShapeId =
+      typeof parsed.selectedShapeId === "string" && pages.some((p) => p.shapeBoxes.some((b) => b.id === parsed.selectedShapeId))
+        ? parsed.selectedShapeId
+        : null;
+    const customFonts = mergeFontOptions(Array.isArray(parsed.customFonts) ? parsed.customFonts : []);
+    const uploadedFonts = sanitizeUploadedFonts(parsed.uploadedFonts);
 
-    return { pages, activePageId, selectedTextId, selectedImageId };
+    return { pages, activePageId, selectedTextId, selectedImageId, selectedShapeId, customFonts, uploadedFonts };
   } catch {
     return fallback;
   }
@@ -183,12 +395,17 @@ function EditorPageContent() {
   const [dragOverPageId, setDragOverPageId] = useState<string | null>(null);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(initialDoc.selectedTextId);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(initialDoc.selectedImageId);
+  const [selectedShapeId, setSelectedShapeId] = useState<string | null>(initialDoc.selectedShapeId);
+  const [customFonts, setCustomFonts] = useState<string[]>(initialDoc.customFonts);
+  const [uploadedFonts, setUploadedFonts] = useState<UploadedFont[]>(initialDoc.uploadedFonts);
+  const [fontInputValue, setFontInputValue] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [isDownloadMenuOpen, setIsDownloadMenuOpen] = useState(false);
   const [zoomPercent, setZoomPercent] = useState(100);
   const [isPanningCanvas, setIsPanningCanvas] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const fontUploadInputRef = useRef<HTMLInputElement>(null);
   const downloadMenuRef = useRef<HTMLDivElement>(null);
   const canvasViewportRef = useRef<HTMLDivElement>(null);
   const panStateRef = useRef<{
@@ -210,8 +427,17 @@ function EditorPageContent() {
       width,
       height,
       backgroundColor: "#ffffff",
+      gradientEnabled: false,
+      gradientDirection: "vertical",
+      gradientColors: [...DEFAULT_GRADIENT_COLORS],
+      borderWidth: 0,
+      borderColor: "#0f172a",
+      borderGradientEnabled: false,
+      borderGradientDirection: "vertical",
+      borderGradientColors: [...DEFAULT_BORDER_GRADIENT_COLORS],
       showGrid: true,
       imageBoxes: [],
+      shapeBoxes: [],
       textBoxes: [],
     }
   );
@@ -223,6 +449,9 @@ function EditorPageContent() {
   const selectedImageBox = useMemo(() => {
     return activePage.imageBoxes.find((box) => box.id === selectedImageId) || null;
   }, [activePage.imageBoxes, selectedImageId]);
+  const selectedShapeBox = useMemo(() => {
+    return activePage.shapeBoxes.find((box) => box.id === selectedShapeId) || null;
+  }, [activePage.shapeBoxes, selectedShapeId]);
 
   const visiblePages = isHydrated ? pages : fallbackDoc.pages;
   const visibleActivePageId = isHydrated ? activePageId : fallbackDoc.activePageId;
@@ -233,14 +462,29 @@ function EditorPageContent() {
       width,
       height,
       backgroundColor: "#ffffff",
+      gradientEnabled: false,
+      gradientDirection: "vertical",
+      gradientColors: [...DEFAULT_GRADIENT_COLORS],
+      borderWidth: 0,
+      borderColor: "#0f172a",
+      borderGradientEnabled: false,
+      borderGradientDirection: "vertical",
+      borderGradientColors: [...DEFAULT_BORDER_GRADIENT_COLORS],
       showGrid: true,
       imageBoxes: [],
+      shapeBoxes: [],
       textBoxes: [],
     }
   );
   }, [height, visibleActivePageId, visiblePages, width]);
   const visibleSelectedTextBox = isHydrated ? selectedTextBox : null;
   const visibleSelectedImageBox = isHydrated ? selectedImageBox : null;
+  const visibleSelectedShapeBox = isHydrated ? selectedShapeBox : null;
+  const fontOptions = useMemo(() => {
+    const fontsFromPages = pages.flatMap((page) => page.textBoxes.map((box) => box.fontFamily || ""));
+    const uploadedFamilies = uploadedFonts.map((font) => font.family);
+    return mergeFontOptions(FONT_FAMILY_OPTIONS, customFonts, uploadedFamilies, fontsFromPages);
+  }, [customFonts, pages, uploadedFonts]);
   const zoomScale = zoomPercent / 100;
   const filenameBase = useMemo(() => {
     const slug = label
@@ -253,7 +497,7 @@ function EditorPageContent() {
   }, [label]);
 
   const getActivePageLayerBounds = () => {
-    const layers = [...activePage.imageBoxes, ...activePage.textBoxes].map((item) =>
+    const layers = [...activePage.imageBoxes, ...activePage.shapeBoxes, ...activePage.textBoxes].map((item) =>
       Math.round(toSafeNumber(item.layer ?? 0, 0)),
     );
     if (layers.length === 0) {
@@ -269,8 +513,17 @@ function EditorPageContent() {
       width: source.width,
       height: source.height,
       backgroundColor: source.backgroundColor,
+      gradientEnabled: source.gradientEnabled,
+      gradientDirection: source.gradientDirection,
+      gradientColors: [...source.gradientColors] as [string, string, string],
+      borderWidth: source.borderWidth,
+      borderColor: source.borderColor,
+      borderGradientEnabled: source.borderGradientEnabled,
+      borderGradientDirection: source.borderGradientDirection,
+      borderGradientColors: [...source.borderGradientColors] as [string, string, string],
       showGrid: source.showGrid,
       imageBoxes: [],
+      shapeBoxes: [],
       textBoxes: [],
     };
 
@@ -278,6 +531,7 @@ function EditorPageContent() {
     setActivePageId(newPage.id);
     setSelectedTextId(null);
     setSelectedImageId(null);
+    setSelectedShapeId(null);
   };
 
   const duplicatePage = (pageId: string) => {
@@ -290,8 +544,17 @@ function EditorPageContent() {
       width: source.width,
       height: source.height,
       backgroundColor: source.backgroundColor,
+      gradientEnabled: source.gradientEnabled,
+      gradientDirection: source.gradientDirection,
+      gradientColors: [...source.gradientColors] as [string, string, string],
+      borderWidth: source.borderWidth,
+      borderColor: source.borderColor,
+      borderGradientEnabled: source.borderGradientEnabled,
+      borderGradientDirection: source.borderGradientDirection,
+      borderGradientColors: [...source.borderGradientColors] as [string, string, string],
       showGrid: source.showGrid,
       imageBoxes: source.imageBoxes.map((box) => ({ ...box, id: createImageId() })),
+      shapeBoxes: source.shapeBoxes.map((box) => ({ ...box, id: createShapeId() })),
       textBoxes: source.textBoxes.map((box) => ({ ...box, id: createTextId() })),
     };
 
@@ -301,6 +564,7 @@ function EditorPageContent() {
     setActivePageId(copy.id);
     setSelectedTextId(null);
     setSelectedImageId(null);
+    setSelectedShapeId(null);
   };
 
   const deletePage = (pageId: string) => {
@@ -316,6 +580,7 @@ function EditorPageContent() {
       setActivePageId(next[fallbackIndex]?.id ?? next[0].id);
       setSelectedTextId(null);
       setSelectedImageId(null);
+      setSelectedShapeId(null);
     }
   };
 
@@ -341,6 +606,7 @@ function EditorPageContent() {
       width: 420,
       height: 110,
       text: "Add a heading",
+      fontFamily: FONT_FAMILY_OPTIONS[0],
       fontSize: 56,
       fontWeight: "700",
       textAlign: "left",
@@ -355,6 +621,36 @@ function EditorPageContent() {
       ),
     );
     setSelectedTextId(newText.id);
+    setSelectedImageId(null);
+    setSelectedShapeId(null);
+  };
+
+  const addShapeBox = (shapeType: CanvasShapeKind = "square") => {
+    const { max } = getActivePageLayerBounds();
+    const newShape: CanvasShapeBox = {
+      id: createShapeId(),
+      x: Math.max(20, Math.round(activePage.width * 0.3)),
+      y: Math.max(20, Math.round(activePage.height * 0.3)),
+      width: 180,
+      height: 180,
+      shapeType,
+      fillColor: "#38bdf8",
+      gradientEnabled: false,
+      gradientDirection: "vertical",
+      gradientColors: [...DEFAULT_SHAPE_GRADIENT_COLORS],
+      strokeColor: "#0f172a",
+      strokeWidth: 2,
+      rotation: 0,
+      layer: max + 1,
+    };
+
+    setPages((prev) =>
+      prev.map((page) =>
+        page.id === activePage.id ? { ...page, shapeBoxes: [...page.shapeBoxes, newShape] } : page,
+      ),
+    );
+    setSelectedShapeId(newShape.id);
+    setSelectedTextId(null);
     setSelectedImageId(null);
   };
 
@@ -389,6 +685,7 @@ function EditorPageContent() {
     );
     setSelectedImageId(newImage.id);
     setSelectedTextId(null);
+    setSelectedShapeId(null);
   };
 
   const handleImageInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -435,7 +732,25 @@ function EditorPageContent() {
     updateImageBox(selectedImageBox.id, updates);
   };
 
-  const reorderActiveElement = (target: { type: "image" | "text"; id: string }, position: "front" | "back") => {
+  const updateShapeBox = (shapeId: string, updates: Partial<CanvasShapeBox>) => {
+    setPages((prev) =>
+      prev.map((page) =>
+        page.id === activePage.id
+          ? {
+              ...page,
+              shapeBoxes: page.shapeBoxes.map((box) => (box.id === shapeId ? { ...box, ...updates } : box)),
+            }
+          : page,
+      ),
+    );
+  };
+
+  const updateSelectedShapeBox = (updates: Partial<CanvasShapeBox>) => {
+    if (!selectedShapeBox) return;
+    updateShapeBox(selectedShapeBox.id, updates);
+  };
+
+  const reorderActiveElement = (target: { type: "image" | "shape" | "text"; id: string }, position: "front" | "back") => {
     setPages((prev) =>
       prev.map((page) => {
         if (page.id !== activePage.id) return page;
@@ -443,6 +758,11 @@ function EditorPageContent() {
         const combined = [
           ...page.imageBoxes.map((box) => ({
             type: "image" as const,
+            id: box.id,
+            layer: Math.round(toSafeNumber(box.layer ?? 1, 1)),
+          })),
+          ...page.shapeBoxes.map((box) => ({
+            type: "shape" as const,
             id: box.id,
             layer: Math.round(toSafeNumber(box.layer ?? 1, 1)),
           })),
@@ -475,6 +795,10 @@ function EditorPageContent() {
             ...box,
             layer: layerMap.get(`image:${box.id}`) ?? 1,
           })),
+          shapeBoxes: page.shapeBoxes.map((box) => ({
+            ...box,
+            layer: layerMap.get(`shape:${box.id}`) ?? 1,
+          })),
           textBoxes: page.textBoxes.map((box) => ({
             ...box,
             layer: layerMap.get(`text:${box.id}`) ?? 1,
@@ -489,6 +813,11 @@ function EditorPageContent() {
     reorderActiveElement({ type: "image", id: selectedImageBox.id }, position);
   };
 
+  const reorderSelectedShapeBox = (position: "front" | "back") => {
+    if (!selectedShapeBox) return;
+    reorderActiveElement({ type: "shape", id: selectedShapeBox.id }, position);
+  };
+
   const deleteSelectedImageBox = () => {
     if (!selectedImageBox) return;
     setPages((prev) =>
@@ -499,6 +828,19 @@ function EditorPageContent() {
       ),
     );
     setSelectedImageId(null);
+  };
+
+  const deleteSelectedShapeBox = () => {
+    if (!selectedShapeBox) return;
+
+    setPages((prev) =>
+      prev.map((page) =>
+        page.id === activePage.id
+          ? { ...page, shapeBoxes: page.shapeBoxes.filter((box) => box.id !== selectedShapeBox.id) }
+          : page,
+      ),
+    );
+    setSelectedShapeId(null);
   };
 
   const updateTextBox = (textId: string, updates: Partial<CanvasTextBox>) => {
@@ -517,6 +859,55 @@ function EditorPageContent() {
   const updateSelectedTextBox = (updates: Partial<CanvasTextBox>) => {
     if (!selectedTextBox) return;
     updateTextBox(selectedTextBox.id, updates);
+  };
+
+  const addCustomFont = () => {
+    const nextFont = sanitizeFontName(fontInputValue);
+    if (!nextFont) return;
+
+    setCustomFonts((prev) => mergeFontOptions(prev, [nextFont]));
+    setFontInputValue("");
+    if (selectedTextBox) {
+      updateSelectedTextBox({ fontFamily: nextFont });
+    }
+  };
+
+  const handleFontUploadChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+
+    const familyFromFile = sanitizeFontName(file.name.replace(/\.[^.]+$/, "")) || "Uploaded Font";
+    const format = inferFontFormat(file);
+
+    try {
+      const source = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+        reader.onerror = () => reject(new Error("Unable to read font file."));
+        reader.readAsDataURL(file);
+      });
+
+      if (!source.startsWith("data:")) {
+        throw new Error("Unsupported font file.");
+      }
+
+      const uploaded: UploadedFont = { family: familyFromFile, source, format };
+      setUploadedFonts((prev) => upsertUploadedFont(prev, uploaded));
+
+      if (typeof FontFace !== "undefined" && "fonts" in document) {
+        const formatHint = format ? ` format("${format}")` : "";
+        const fontFace = new FontFace(familyFromFile, `url(${source})${formatHint}`);
+        await fontFace.load();
+        document.fonts.add(fontFace);
+      }
+
+      if (selectedTextBox) {
+        updateSelectedTextBox({ fontFamily: familyFromFile });
+      }
+    } catch {
+      setExportError("Unable to upload font.");
+    }
   };
 
   const reorderSelectedTextBox = (position: "front" | "back") => {
@@ -629,19 +1020,42 @@ function EditorPageContent() {
   }, [height, label, orientation, preset, width]);
 
   useEffect(() => {
+    const styleId = "editor-uploaded-fonts-style";
+    let styleElement = document.getElementById(styleId) as HTMLStyleElement | null;
+
+    if (!styleElement) {
+      styleElement = document.createElement("style");
+      styleElement.id = styleId;
+      document.head.appendChild(styleElement);
+    }
+
+    styleElement.textContent = uploadedFonts
+      .map((font) => {
+        const family = escapeCssString(font.family);
+        const source = escapeCssString(font.source);
+        const format = font.format ? ` format("${font.format}")` : "";
+        return `@font-face{font-family:"${family}";src:url("${source}")${format};font-display:swap;}`;
+      })
+      .join("\n");
+  }, [uploadedFonts]);
+
+  useEffect(() => {
     const doc: StoredEditorDoc = {
       pages,
       activePageId,
       selectedTextId,
       selectedImageId,
+      selectedShapeId,
+      customFonts,
+      uploadedFonts,
     };
 
     window.localStorage.setItem(getDocStorageKey(preset, width, height), JSON.stringify(doc));
-  }, [activePageId, height, pages, preset, selectedImageId, selectedTextId, width]);
+  }, [activePageId, customFonts, height, pages, preset, selectedImageId, selectedShapeId, selectedTextId, uploadedFonts, width]);
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(140deg,#f1f5f9_0%,#e2e8f0_35%,#f8fafc_100%)] p-4 text-slate-900">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-4">
+    <main className="min-h-screen bg-[linear-gradient(140deg,#f1f5f9_0%,#e2e8f0_35%,#f8fafc_100%)] p-0 text-slate-900">
+      <div className="flex w-full flex-col gap-4 px-0 py-3">
         <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Editor</p>
@@ -675,6 +1089,13 @@ function EditorPageContent() {
               className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
             >
               + Image
+            </button>
+            <button
+              type="button"
+              onClick={() => addShapeBox("square")}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
+            >
+              + Shape
             </button>
             <button
               type="button"
@@ -752,6 +1173,57 @@ function EditorPageContent() {
         {visibleSelectedTextBox ? (
           <section className="flex h-12 items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white px-3 shadow-sm">
             <p className="mr-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Text</p>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Font
+              <select
+                value={visibleSelectedTextBox.fontFamily || FONT_FAMILY_OPTIONS[0]}
+                onChange={(event) => updateSelectedTextBox({ fontFamily: event.target.value })}
+                className="max-w-28 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
+              >
+                {fontOptions.map((font) => (
+                  <option key={font} value={font}>
+                    {font}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Add Font
+              <input
+                type="text"
+                value={fontInputValue}
+                onChange={(event) => setFontInputValue(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addCustomFont();
+                  }
+                }}
+                placeholder="e.g. Poppins"
+                className="w-28 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
+              />
+              <button
+                type="button"
+                onClick={addCustomFont}
+                className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Add
+              </button>
+            </label>
+            <input
+              ref={fontUploadInputRef}
+              type="file"
+              accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff,font/woff2"
+              className="hidden"
+              onChange={handleFontUploadChange}
+            />
+            <button
+              type="button"
+              onClick={() => fontUploadInputRef.current?.click()}
+              className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Upload Font
+            </button>
             <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
               Size
               <input
@@ -967,6 +1439,169 @@ function EditorPageContent() {
               Delete
             </button>
           </section>
+        ) : visibleSelectedShapeBox ? (
+          <section className="flex h-12 items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white px-3 shadow-sm">
+            <p className="mr-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Shape</p>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Type
+              <select
+                value={visibleSelectedShapeBox.shapeType}
+                onChange={(event) =>
+                  updateSelectedShapeBox({
+                    shapeType: SHAPE_KIND_OPTIONS.includes(event.target.value as CanvasShapeKind)
+                      ? (event.target.value as CanvasShapeKind)
+                      : "square",
+                  })
+                }
+                className="rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
+              >
+                {SHAPE_KIND_OPTIONS.map((shapeType) => (
+                  <option key={shapeType} value={shapeType}>
+                    {shapeType[0].toUpperCase()}
+                    {shapeType.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="shrink-0 flex items-center gap-1 text-xs text-slate-600">
+              Fill
+              <input
+                type="color"
+                value={visibleSelectedShapeBox.fillColor || "#38bdf8"}
+                onChange={(event) => updateSelectedShapeBox({ fillColor: event.target.value })}
+                className="h-7 w-8 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => updateSelectedShapeBox({ gradientEnabled: !visibleSelectedShapeBox.gradientEnabled })}
+              className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${
+                visibleSelectedShapeBox.gradientEnabled
+                  ? "border-sky-400 bg-sky-50 text-sky-700"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Gradient {visibleSelectedShapeBox.gradientEnabled ? "On" : "Off"}
+            </button>
+            <div className="shrink-0 inline-flex items-center overflow-hidden rounded-md border border-slate-300">
+              <button
+                type="button"
+                onClick={() => updateSelectedShapeBox({ gradientDirection: "vertical" })}
+                className={`px-2 py-1 text-xs ${
+                  (visibleSelectedShapeBox.gradientDirection || "vertical") === "vertical"
+                    ? "bg-sky-50 text-sky-700"
+                    : "bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                Vertical
+              </button>
+              <button
+                type="button"
+                onClick={() => updateSelectedShapeBox({ gradientDirection: "horizontal" })}
+                className={`px-2 py-1 text-xs ${
+                  (visibleSelectedShapeBox.gradientDirection || "vertical") === "horizontal"
+                    ? "bg-sky-50 text-sky-700"
+                    : "bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                Horizontal
+              </button>
+            </div>
+            {[0, 1, 2].map((index) => (
+              <label key={`sg-${index}`} className="shrink-0 flex items-center gap-1 text-xs text-slate-600">
+                SG{index + 1}
+                <input
+                  type="color"
+                  value={visibleSelectedShapeBox.gradientColors?.[index] || DEFAULT_SHAPE_GRADIENT_COLORS[index]}
+                  onChange={(event) => {
+                    const next = [
+                      visibleSelectedShapeBox.gradientColors?.[0] || DEFAULT_SHAPE_GRADIENT_COLORS[0],
+                      visibleSelectedShapeBox.gradientColors?.[1] || DEFAULT_SHAPE_GRADIENT_COLORS[1],
+                      visibleSelectedShapeBox.gradientColors?.[2] || DEFAULT_SHAPE_GRADIENT_COLORS[2],
+                    ] as [string, string, string];
+                    next[index] = event.target.value;
+                    updateSelectedShapeBox({ gradientColors: next });
+                  }}
+                  className="h-7 w-8 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+                />
+              </label>
+            ))}
+            <label className="shrink-0 flex items-center gap-1 text-xs text-slate-600">
+              Stroke
+              <input
+                type="color"
+                value={visibleSelectedShapeBox.strokeColor || "#0f172a"}
+                onChange={(event) => updateSelectedShapeBox({ strokeColor: event.target.value })}
+                className="h-7 w-8 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+              />
+            </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Stroke W
+              <input
+                type="number"
+                min={0}
+                max={80}
+                step={1}
+                value={Math.round(visibleSelectedShapeBox.strokeWidth ?? 2)}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedShapeBox({ strokeWidth: Math.max(0, Math.min(80, value)) });
+                }}
+                className="w-14 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
+              />
+            </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Rotate
+              <input
+                type="range"
+                min={-180}
+                max={180}
+                step={1}
+                value={visibleSelectedShapeBox.rotation ?? 0}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedShapeBox({ rotation: Math.max(-180, Math.min(180, value)) });
+                }}
+                className="w-20 accent-sky-600"
+              />
+              <input
+                type="number"
+                min={-180}
+                max={180}
+                step={1}
+                value={visibleSelectedShapeBox.rotation ?? 0}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedShapeBox({ rotation: Math.max(-180, Math.min(180, value)) });
+                }}
+                className="w-14 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => reorderSelectedShapeBox("front")}
+              className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Bring Front
+            </button>
+            <button
+              type="button"
+              onClick={() => reorderSelectedShapeBox("back")}
+              className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Send Back
+            </button>
+            <button
+              type="button"
+              onClick={deleteSelectedShapeBox}
+              className="ml-1 shrink-0 rounded-md border border-rose-300 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100"
+            >
+              Delete
+            </button>
+          </section>
         ) : (
           <section className="flex h-12 items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white px-3 shadow-sm">
             <p className="mr-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Page</p>
@@ -979,6 +1614,144 @@ function EditorPageContent() {
                 className="h-7 w-8 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
               />
             </label>
+            <button
+              type="button"
+              onClick={() => updateActivePage({ gradientEnabled: !visibleActivePage.gradientEnabled })}
+              className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${
+                visibleActivePage.gradientEnabled
+                  ? "border-sky-400 bg-sky-50 text-sky-700"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Gradient {visibleActivePage.gradientEnabled ? "On" : "Off"}
+            </button>
+            <div className="shrink-0 inline-flex items-center overflow-hidden rounded-md border border-slate-300">
+              <button
+                type="button"
+                onClick={() => updateActivePage({ gradientDirection: "vertical" })}
+                className={`px-2 py-1 text-xs ${
+                  visibleActivePage.gradientDirection === "vertical"
+                    ? "bg-sky-50 text-sky-700"
+                    : "bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                Vertical
+              </button>
+              <button
+                type="button"
+                onClick={() => updateActivePage({ gradientDirection: "horizontal" })}
+                className={`px-2 py-1 text-xs ${
+                  visibleActivePage.gradientDirection === "horizontal"
+                    ? "bg-sky-50 text-sky-700"
+                    : "bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                Horizontal
+              </button>
+            </div>
+            {[0, 1, 2].map((index) => (
+              <label key={index} className="shrink-0 flex items-center gap-1 text-xs text-slate-600">
+                G{index + 1}
+                <input
+                  type="color"
+                  value={visibleActivePage.gradientColors[index] || DEFAULT_GRADIENT_COLORS[index]}
+                  onChange={(event) => {
+                    const next = [...visibleActivePage.gradientColors] as [string, string, string];
+                    next[index] = event.target.value;
+                    updateActivePage({ gradientColors: next });
+                  }}
+                  className="h-7 w-8 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+                />
+              </label>
+            ))}
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Border
+              <input
+                type="range"
+                min={0}
+                max={200}
+                step={1}
+                value={Math.round(visibleActivePage.borderWidth ?? 0)}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  updateActivePage({ borderWidth: Math.max(0, Math.min(200, value)) });
+                }}
+                className="w-20 accent-sky-600"
+              />
+              <input
+                type="number"
+                min={0}
+                max={200}
+                step={1}
+                value={Math.round(visibleActivePage.borderWidth ?? 0)}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  updateActivePage({ borderWidth: Math.max(0, Math.min(200, value)) });
+                }}
+                className="w-14 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
+              />
+            </label>
+            <label className="shrink-0 flex items-center gap-1 text-xs text-slate-600">
+              Border Color
+              <input
+                type="color"
+                value={visibleActivePage.borderColor || "#0f172a"}
+                onChange={(event) => updateActivePage({ borderColor: event.target.value })}
+                className="h-7 w-8 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => updateActivePage({ borderGradientEnabled: !visibleActivePage.borderGradientEnabled })}
+              className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${
+                visibleActivePage.borderGradientEnabled
+                  ? "border-sky-400 bg-sky-50 text-sky-700"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Border Gradient {visibleActivePage.borderGradientEnabled ? "On" : "Off"}
+            </button>
+            <div className="shrink-0 inline-flex items-center overflow-hidden rounded-md border border-slate-300">
+              <button
+                type="button"
+                onClick={() => updateActivePage({ borderGradientDirection: "vertical" })}
+                className={`px-2 py-1 text-xs ${
+                  visibleActivePage.borderGradientDirection === "vertical"
+                    ? "bg-sky-50 text-sky-700"
+                    : "bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                B-Vertical
+              </button>
+              <button
+                type="button"
+                onClick={() => updateActivePage({ borderGradientDirection: "horizontal" })}
+                className={`px-2 py-1 text-xs ${
+                  visibleActivePage.borderGradientDirection === "horizontal"
+                    ? "bg-sky-50 text-sky-700"
+                    : "bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                B-Horizontal
+              </button>
+            </div>
+            {[0, 1, 2].map((index) => (
+              <label key={`b-${index}`} className="shrink-0 flex items-center gap-1 text-xs text-slate-600">
+                B{index + 1}
+                <input
+                  type="color"
+                  value={visibleActivePage.borderGradientColors[index] || DEFAULT_BORDER_GRADIENT_COLORS[index]}
+                  onChange={(event) => {
+                    const next = [...visibleActivePage.borderGradientColors] as [string, string, string];
+                    next[index] = event.target.value;
+                    updateActivePage({ borderGradientColors: next });
+                  }}
+                  className="h-7 w-8 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+                />
+              </label>
+            ))}
             <button
               type="button"
               onClick={() => updateActivePage({ showGrid: !visibleActivePage.showGrid })}
@@ -1062,16 +1835,43 @@ function EditorPageContent() {
                     height={visibleActivePage.height}
                     zoom={zoomScale}
                     backgroundColor={visibleActivePage.backgroundColor}
+                    backgroundGradientEnabled={visibleActivePage.gradientEnabled}
+                    backgroundGradientDirection={visibleActivePage.gradientDirection}
+                    backgroundGradientColors={visibleActivePage.gradientColors}
+                    borderWidth={visibleActivePage.borderWidth}
+                    borderColor={visibleActivePage.borderColor}
+                    borderGradientEnabled={visibleActivePage.borderGradientEnabled}
+                    borderGradientDirection={visibleActivePage.borderGradientDirection}
+                    borderGradientColors={visibleActivePage.borderGradientColors}
                     showGrid={visibleActivePage.showGrid}
                     imageBoxes={visibleActivePage.imageBoxes}
                     selectedImageId={isHydrated ? selectedImageId : null}
-                    onSelectImage={setSelectedImageId}
+                    onSelectImage={(id) => {
+                      setSelectedImageId(id);
+                      if (id) {
+                        setSelectedTextId(null);
+                        setSelectedShapeId(null);
+                      }
+                    }}
                     onUpdateImageBox={updateImageBox}
+                    shapeBoxes={visibleActivePage.shapeBoxes}
+                    selectedShapeId={isHydrated ? selectedShapeId : null}
+                    onSelectShape={(id) => {
+                      setSelectedShapeId(id);
+                      if (id) {
+                        setSelectedTextId(null);
+                        setSelectedImageId(null);
+                      }
+                    }}
+                    onUpdateShapeBox={updateShapeBox}
                     textBoxes={visibleActivePage.textBoxes}
                     selectedTextId={isHydrated ? selectedTextId : null}
                     onSelectText={(id) => {
                       setSelectedTextId(id);
-                      if (id) setSelectedImageId(null);
+                      if (id) {
+                        setSelectedImageId(null);
+                        setSelectedShapeId(null);
+                      }
                     }}
                     onUpdateTextBox={updateTextBox}
                   />
@@ -1116,6 +1916,7 @@ function EditorPageContent() {
                           setActivePageId(page.id);
                           setSelectedTextId(null);
                           setSelectedImageId(null);
+                          setSelectedShapeId(null);
                         }}
                         aria-label={`Open page ${index + 1}`}
                         title={`Page ${index + 1}`}
@@ -1125,7 +1926,12 @@ function EditorPageContent() {
                       >
                         <span
                           className="relative block overflow-hidden border border-slate-300 shadow-sm"
-                          style={{ width: thumbWidth, height: thumbHeight, backgroundColor: page.backgroundColor || "#ffffff" }}
+                          style={{
+                            width: thumbWidth,
+                            height: thumbHeight,
+                            backgroundColor: page.backgroundColor || "#ffffff",
+                            backgroundImage: getPageGradientCss(page),
+                          }}
                         >
                           {page.showGrid && (
                             <span
@@ -1165,6 +1971,93 @@ function EditorPageContent() {
                               />
                             );
                           })}
+                          {page.shapeBoxes.map((shape) => {
+                            const previewX = Math.max(0, toSafeNumber(shape.x, 0) * thumbScale);
+                            const previewY = Math.max(0, toSafeNumber(shape.y, 0) * thumbScale);
+                            const previewWidth = Math.max(2, toSafeNumber(shape.width, 180) * thumbScale);
+                            const previewHeight = Math.max(2, toSafeNumber(shape.height, 180) * thumbScale);
+                            const baseWidth = Math.max(1, toSafeNumber(shape.width, 180));
+                            const baseHeight = Math.max(1, toSafeNumber(shape.height, 180));
+                            const previewRotation = clamp(toSafeNumber(shape.rotation ?? 0, 0), -180, 180);
+                            const shapeType: CanvasShapeKind =
+                              shape.shapeType === "circle" || shape.shapeType === "triangle" ? shape.shapeType : "square";
+                            const fillColor = shape.fillColor || "#38bdf8";
+                            const shapeGradientEnabled = Boolean(shape.gradientEnabled);
+                            const shapeGradientDirection = shape.gradientDirection === "horizontal" ? "horizontal" : "vertical";
+                            const [shapeGradientStart, shapeGradientMiddle, shapeGradientEnd] =
+                              shape.gradientColors || DEFAULT_SHAPE_GRADIENT_COLORS;
+                            const gradientId = `thumb-shape-grad-${shape.id}`;
+                            const fillValue = shapeGradientEnabled ? `url(#${gradientId})` : fillColor;
+                            const strokeColor = shape.strokeColor || "#0f172a";
+                            const strokeWidth = Math.max(0, toSafeNumber(shape.strokeWidth ?? 2, 2));
+                            // Use original shape dimensions so thumbnail stroke scales down with thumbnail size.
+                            const normalizedStrokeWidth = Math.max(0, (strokeWidth * 100) / Math.max(baseWidth, baseHeight));
+
+                            return (
+                              <span
+                                key={shape.id}
+                                className="absolute block"
+                                style={{
+                                  left: previewX,
+                                  top: previewY,
+                                  width: previewWidth,
+                                  height: previewHeight,
+                                  transform: `rotate(${previewRotation}deg)`,
+                                  transformOrigin: "center center",
+                                  zIndex: Math.round(toSafeNumber(shape.layer ?? 0, 0)),
+                                }}
+                              >
+                                <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full overflow-visible">
+                                  {shapeGradientEnabled && (
+                                    <defs>
+                                      <linearGradient
+                                        id={gradientId}
+                                        x1="0%"
+                                        y1="0%"
+                                        x2={shapeGradientDirection === "horizontal" ? "100%" : "0%"}
+                                        y2={shapeGradientDirection === "horizontal" ? "0%" : "100%"}
+                                      >
+                                        <stop offset="0%" stopColor={shapeGradientStart} />
+                                        <stop offset="50%" stopColor={shapeGradientMiddle} />
+                                        <stop offset="100%" stopColor={shapeGradientEnd} />
+                                      </linearGradient>
+                                    </defs>
+                                  )}
+                                  {shapeType === "triangle" ? (
+                                    <polygon
+                                      points="50,0 100,100 0,100"
+                                      fill={fillValue}
+                                      stroke={strokeColor}
+                                      strokeWidth={normalizedStrokeWidth}
+                                      vectorEffect="non-scaling-stroke"
+                                    />
+                                  ) : shapeType === "circle" ? (
+                                    <ellipse
+                                      cx="50"
+                                      cy="50"
+                                      rx="50"
+                                      ry="50"
+                                      fill={fillValue}
+                                      stroke={strokeColor}
+                                      strokeWidth={normalizedStrokeWidth}
+                                      vectorEffect="non-scaling-stroke"
+                                    />
+                                  ) : (
+                                    <rect
+                                      x="0"
+                                      y="0"
+                                      width="100"
+                                      height="100"
+                                      fill={fillValue}
+                                      stroke={strokeColor}
+                                      strokeWidth={normalizedStrokeWidth}
+                                      vectorEffect="non-scaling-stroke"
+                                    />
+                                  )}
+                                </svg>
+                              </span>
+                            );
+                          })}
                           {page.textBoxes.map((box) => {
                             const previewX = Math.max(0, toSafeNumber(box.x, 0) * thumbScale);
                             const previewY = Math.max(0, toSafeNumber(box.y, 0) * thumbScale);
@@ -1176,19 +2069,20 @@ function EditorPageContent() {
                             return (
                               <span
                                 key={box.id}
-                                className="absolute block overflow-hidden whitespace-pre-wrap break-words leading-tight"
+                                className="absolute block whitespace-pre-wrap break-words"
                                 style={{
                                   left: previewX,
                                   top: previewY,
                                   width: previewWidth,
                                   height: previewHeight,
+                                  fontFamily: toFontFamilyCss(box.fontFamily || FONT_FAMILY_OPTIONS[0]),
                                   fontSize: previewFontSize,
                                   fontWeight: box.fontWeight || "700",
                                   textAlign: box.textAlign || "left",
                                   color: box.color || "#0f172a",
                                   transform: `rotate(${previewRotation}deg)`,
                                   transformOrigin: "center center",
-                                  lineHeight: 1.2,
+                                  lineHeight: 1.25,
                                   zIndex: Math.round(toSafeNumber(box.layer ?? 0, 0)),
                                 }}
                               >
@@ -1196,6 +2090,19 @@ function EditorPageContent() {
                               </span>
                             );
                           })}
+                          {toSafeNumber(page.borderWidth, 0) > 0 && (
+                            <span
+                              className="pointer-events-none absolute inset-0"
+                              style={{
+                                borderStyle: "solid",
+                                borderWidth: Math.max(0, toSafeNumber(page.borderWidth, 0) * thumbScale),
+                                borderColor: page.borderGradientEnabled ? "transparent" : page.borderColor || "#0f172a",
+                                borderImageSource: getBorderGradientCss(page),
+                                borderImageSlice: page.borderGradientEnabled ? 1 : undefined,
+                                boxSizing: "border-box",
+                              }}
+                            />
+                          )}
                         </span>
                       </button>
 

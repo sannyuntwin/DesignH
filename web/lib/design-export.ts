@@ -1,10 +1,19 @@
-import type { CanvasImageBox, CanvasTextBox } from "@/components/editor/DesignCanvas";
+import type { CanvasImageBox, CanvasShapeBox, CanvasShapeKind, CanvasTextBox } from "@/components/editor/DesignCanvas";
 
 export type ExportDesignPage = {
   width: number;
   height: number;
   backgroundColor?: string;
+  gradientEnabled?: boolean;
+  gradientDirection?: "vertical" | "horizontal";
+  gradientColors?: readonly [string, string, string];
+  borderWidth?: number;
+  borderColor?: string;
+  borderGradientEnabled?: boolean;
+  borderGradientDirection?: "vertical" | "horizontal";
+  borderGradientColors?: readonly [string, string, string];
   imageBoxes: CanvasImageBox[];
+  shapeBoxes?: CanvasShapeBox[];
   textBoxes: CanvasTextBox[];
 };
 
@@ -12,6 +21,12 @@ type ImageExportFormat = "png" | "jpg";
 
 function normalizeNumber(value: number, fallback: number) {
   return Number.isFinite(value) ? value : fallback;
+}
+
+function sanitizeHexColor(value: unknown, fallback: string) {
+  if (typeof value !== "string") return fallback;
+  const trimmed = value.trim();
+  return /^#(?:[0-9a-fA-F]{3}){1,2}$/.test(trimmed) ? trimmed : fallback;
 }
 
 function wrapTextLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
@@ -67,11 +82,45 @@ async function renderPageToCanvas(page: ExportDesignPage) {
     throw new Error("Canvas rendering is not supported in this browser.");
   }
 
-  ctx.fillStyle = page.backgroundColor || "#ffffff";
+  const fillColor = sanitizeHexColor(page.backgroundColor, "#ffffff");
+  if (page.gradientEnabled) {
+    const [start, middle, end] = page.gradientColors || ["#f8fafc", "#e2e8f0", "#cbd5e1"];
+    const gradient =
+      page.gradientDirection === "horizontal"
+        ? ctx.createLinearGradient(0, 0, width, 0)
+        : ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, sanitizeHexColor(start, "#f8fafc"));
+    gradient.addColorStop(0.5, sanitizeHexColor(middle, "#e2e8f0"));
+    gradient.addColorStop(1, sanitizeHexColor(end, "#cbd5e1"));
+    ctx.fillStyle = gradient;
+  } else {
+    ctx.fillStyle = fillColor;
+  }
   ctx.fillRect(0, 0, width, height);
+
+  const rawBorderWidth = Math.max(0, normalizeNumber(page.borderWidth ?? 0, 0));
+  const borderWidth = Math.min(rawBorderWidth, Math.floor(Math.min(width, height) / 2));
+  if (borderWidth > 0) {
+    if (page.borderGradientEnabled) {
+      const [start, middle, end] = page.borderGradientColors || ["#0f172a", "#475569", "#0f172a"];
+      const borderGradient =
+        page.borderGradientDirection === "horizontal"
+          ? ctx.createLinearGradient(0, 0, width, 0)
+          : ctx.createLinearGradient(0, 0, 0, height);
+      borderGradient.addColorStop(0, sanitizeHexColor(start, "#0f172a"));
+      borderGradient.addColorStop(0.5, sanitizeHexColor(middle, "#475569"));
+      borderGradient.addColorStop(1, sanitizeHexColor(end, "#0f172a"));
+      ctx.strokeStyle = borderGradient;
+    } else {
+      ctx.strokeStyle = sanitizeHexColor(page.borderColor, "#0f172a");
+    }
+    ctx.lineWidth = borderWidth;
+    ctx.strokeRect(borderWidth / 2, borderWidth / 2, width - borderWidth, height - borderWidth);
+  }
 
   const drawItems = [
     ...page.imageBoxes.map((box) => ({ kind: "image" as const, layer: normalizeNumber(box.layer ?? 0, 0), box })),
+    ...(page.shapeBoxes || []).map((box) => ({ kind: "shape" as const, layer: normalizeNumber(box.layer ?? 0, 0), box })),
     ...page.textBoxes.map((box) => ({ kind: "text" as const, layer: normalizeNumber(box.layer ?? 0, 0), box })),
   ].sort((a, b) => a.layer - b.layer);
 
@@ -101,6 +150,62 @@ async function renderPageToCanvas(page: ExportDesignPage) {
       continue;
     }
 
+    if (item.kind === "shape") {
+      const shapeBox = item.box;
+      const shapeX = normalizeNumber(shapeBox.x, 0);
+      const shapeY = normalizeNumber(shapeBox.y, 0);
+      const shapeWidth = Math.max(1, normalizeNumber(shapeBox.width, 180));
+      const shapeHeight = Math.max(1, normalizeNumber(shapeBox.height, 180));
+      const shapeRotation = normalizeNumber(shapeBox.rotation ?? 0, 0);
+      const shapeFill = sanitizeHexColor(shapeBox.fillColor, "#38bdf8");
+      const shapeGradientEnabled = Boolean(shapeBox.gradientEnabled);
+      const shapeGradientDirection = shapeBox.gradientDirection === "horizontal" ? "horizontal" : "vertical";
+      const [shapeGradientStart, shapeGradientMiddle, shapeGradientEnd] = shapeBox.gradientColors || ["#38bdf8", "#22d3ee", "#818cf8"];
+      const shapeStroke = sanitizeHexColor(shapeBox.strokeColor, "#0f172a");
+      const shapeStrokeWidth = Math.max(0, normalizeNumber(shapeBox.strokeWidth ?? 2, 2));
+      const shapeType: CanvasShapeKind =
+        shapeBox.shapeType === "circle" || shapeBox.shapeType === "triangle" ? shapeBox.shapeType : "square";
+
+      ctx.save();
+      ctx.translate(shapeX + shapeWidth / 2, shapeY + shapeHeight / 2);
+      ctx.rotate((shapeRotation * Math.PI) / 180);
+      ctx.beginPath();
+
+      if (shapeType === "circle") {
+        ctx.ellipse(0, 0, shapeWidth / 2, shapeHeight / 2, 0, 0, Math.PI * 2);
+      } else if (shapeType === "triangle") {
+        ctx.moveTo(0, -shapeHeight / 2);
+        ctx.lineTo(shapeWidth / 2, shapeHeight / 2);
+        ctx.lineTo(-shapeWidth / 2, shapeHeight / 2);
+        ctx.closePath();
+      } else {
+        ctx.rect(-shapeWidth / 2, -shapeHeight / 2, shapeWidth, shapeHeight);
+      }
+
+      if (shapeGradientEnabled) {
+        const shapeGradient =
+          shapeGradientDirection === "horizontal"
+            ? ctx.createLinearGradient(-shapeWidth / 2, 0, shapeWidth / 2, 0)
+            : ctx.createLinearGradient(0, -shapeHeight / 2, 0, shapeHeight / 2);
+        shapeGradient.addColorStop(0, sanitizeHexColor(shapeGradientStart, "#38bdf8"));
+        shapeGradient.addColorStop(0.5, sanitizeHexColor(shapeGradientMiddle, "#22d3ee"));
+        shapeGradient.addColorStop(1, sanitizeHexColor(shapeGradientEnd, "#818cf8"));
+        ctx.fillStyle = shapeGradient;
+      } else {
+        ctx.fillStyle = shapeFill;
+      }
+      ctx.fill();
+
+      if (shapeStrokeWidth > 0) {
+        ctx.lineWidth = shapeStrokeWidth;
+        ctx.strokeStyle = shapeStroke;
+        ctx.stroke();
+      }
+
+      ctx.restore();
+      continue;
+    }
+
     const box = item.box;
     const boxX = normalizeNumber(box.x, 0);
     const boxY = normalizeNumber(box.y, 0);
@@ -108,6 +213,7 @@ async function renderPageToCanvas(page: ExportDesignPage) {
     const boxHeight = Math.max(1, normalizeNumber(box.height, 90));
     const fontSize = Math.max(8, normalizeNumber(box.fontSize ?? 42, 42));
     const fontWeight = box.fontWeight || "700";
+    const fontFamily = box.fontFamily || "Arial";
     const color = box.color || "#0f172a";
     const align = box.textAlign || "left";
     const rotation = normalizeNumber(box.rotation ?? 0, 0);
@@ -122,7 +228,7 @@ async function renderPageToCanvas(page: ExportDesignPage) {
     ctx.clip();
 
     ctx.fillStyle = color;
-    ctx.font = `${fontWeight} ${fontSize}px Arial, sans-serif`;
+    ctx.font = `${fontWeight} ${fontSize}px "${fontFamily}", Arial, sans-serif`;
     ctx.textBaseline = "top";
     ctx.textAlign = align;
 
