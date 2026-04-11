@@ -1,10 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
 from app.api import auth, designs, teams, templates, assets, files, analytics, search, security, profile, comments, versions, export, collaborators
 from app import models  # ensure all SQLAlchemy models are registered
 from app.core.config import settings
-from app.models.base import Base, engine
+from app.models.base import initialize_schema
 
 app = FastAPI(
     title="Design Editor API",
@@ -41,9 +40,7 @@ app.include_router(collaborators.router, prefix="/api/collaborators", tags=["col
 @app.on_event("startup")
 async def ensure_schema():
     """Create missing tables/columns for environments without migrations (e.g., fresh Render DB)."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ NULL"))
+    await initialize_schema()
 
 @app.get("/")
 async def root():
