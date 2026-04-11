@@ -1,11 +1,12 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import DesignCanvas, { CanvasTextBox } from "@/components/editor/DesignCanvas";
+import DesignCanvas, { CanvasImageBox, CanvasTextBox } from "@/components/editor/DesignCanvas";
 import { readAuthSession } from "@/lib/auth-session";
 import { DEFAULT_PAGE, Orientation, PAGE_PREF_KEY, SavedPagePreference, parseDimension } from "@/lib/page-sizes";
+import { exportDesignAsImage, exportDesignAsPdf } from "@/lib/design-export";
 
 type CanvasPage = {
   id: string;
@@ -13,6 +14,7 @@ type CanvasPage = {
   height: number;
   backgroundColor: string;
   showGrid: boolean;
+  imageBoxes: CanvasImageBox[];
   textBoxes: CanvasTextBox[];
 };
 
@@ -28,6 +30,10 @@ function createTextId() {
   return `t_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function createImageId() {
+  return `i_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
@@ -41,7 +47,7 @@ function getDocStorageKey(preset: string, width: number, height: number) {
   return `${EDITOR_DOC_KEY_PREFIX}:${preset}:${width}x${height}`;
 }
 
-function sanitizeTextBox(input: Partial<CanvasTextBox>): CanvasTextBox {
+function sanitizeTextBox(input: Partial<CanvasTextBox>, fallbackLayer: number): CanvasTextBox {
   const fontWeight = input.fontWeight === "400" || input.fontWeight === "700" ? input.fontWeight : "700";
   const textAlign =
     input.textAlign === "left" || input.textAlign === "center" || input.textAlign === "right"
@@ -60,18 +66,39 @@ function sanitizeTextBox(input: Partial<CanvasTextBox>): CanvasTextBox {
     textAlign,
     color: typeof input.color === "string" ? input.color : "#0f172a",
     rotation: clamp(toSafeNumber(input.rotation, 0), -180, 180),
+    layer: clamp(Math.round(toSafeNumber(input.layer ?? fallbackLayer, fallbackLayer)), 1, 100000),
+  };
+}
+
+function sanitizeImageBox(input: Partial<CanvasImageBox>, fallbackLayer: number): CanvasImageBox {
+  return {
+    id: typeof input.id === "string" ? input.id : createImageId(),
+    x: clamp(toSafeNumber(input.x, 20), 0, 5000),
+    y: clamp(toSafeNumber(input.y, 20), 0, 5000),
+    width: clamp(toSafeNumber(input.width, 280), 40, 5000),
+    height: clamp(toSafeNumber(input.height, 180), 40, 5000),
+    src: typeof input.src === "string" ? input.src : "",
+    opacity: clamp(toSafeNumber(input.opacity ?? 1, 1), 0, 1),
+    rotation: clamp(toSafeNumber(input.rotation ?? 0, 0), -180, 180),
+    layer: clamp(Math.round(toSafeNumber(input.layer ?? fallbackLayer, fallbackLayer)), 1, 100000),
   };
 }
 
 function sanitizePage(input: Partial<CanvasPage>, fallbackWidth: number, fallbackHeight: number): CanvasPage {
+  const rawImageBoxes = Array.isArray(input.imageBoxes) ? input.imageBoxes : [];
   const rawTextBoxes = Array.isArray(input.textBoxes) ? input.textBoxes : [];
+  const imageBoxes = rawImageBoxes
+    .map((box, index) => sanitizeImageBox(box, index + 1))
+    .filter((box) => Boolean(box.src));
+  const textBoxes = rawTextBoxes.map((box, index) => sanitizeTextBox(box, imageBoxes.length + index + 1));
   return {
     id: typeof input.id === "string" ? input.id : createPageId(),
     width: clamp(toSafeNumber(input.width, fallbackWidth), 100, 5000),
     height: clamp(toSafeNumber(input.height, fallbackHeight), 100, 5000),
     backgroundColor: typeof input.backgroundColor === "string" ? input.backgroundColor : "#ffffff",
     showGrid: typeof input.showGrid === "boolean" ? input.showGrid : true,
-    textBoxes: rawTextBoxes.map((box) => sanitizeTextBox(box)),
+    imageBoxes,
+    textBoxes,
   };
 }
 
@@ -79,6 +106,7 @@ type StoredEditorDoc = {
   pages: CanvasPage[];
   activePageId: string;
   selectedTextId: string | null;
+  selectedImageId: string | null;
 };
 
 function createFallbackEditorDoc(width: number, height: number): StoredEditorDoc {
@@ -88,6 +116,7 @@ function createFallbackEditorDoc(width: number, height: number): StoredEditorDoc
     height,
     backgroundColor: "#ffffff",
     showGrid: true,
+    imageBoxes: [],
     textBoxes: [],
   };
 
@@ -95,6 +124,7 @@ function createFallbackEditorDoc(width: number, height: number): StoredEditorDoc
     pages: [fallbackPage],
     activePageId: fallbackPage.id,
     selectedTextId: null,
+    selectedImageId: null,
   };
 }
 
@@ -125,8 +155,12 @@ function loadInitialEditorDoc(preset: string, width: number, height: number): St
       typeof parsed.selectedTextId === "string" && pages.some((p) => p.textBoxes.some((b) => b.id === parsed.selectedTextId))
         ? parsed.selectedTextId
         : null;
+    const selectedImageId =
+      typeof parsed.selectedImageId === "string" && pages.some((p) => p.imageBoxes.some((b) => b.id === parsed.selectedImageId))
+        ? parsed.selectedImageId
+        : null;
 
-    return { pages, activePageId, selectedTextId };
+    return { pages, activePageId, selectedTextId, selectedImageId };
   } catch {
     return fallback;
   }
@@ -148,6 +182,21 @@ function EditorPageContent() {
   const [draggedPageId, setDraggedPageId] = useState<string | null>(null);
   const [dragOverPageId, setDragOverPageId] = useState<string | null>(null);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(initialDoc.selectedTextId);
+  const [selectedImageId, setSelectedImageId] = useState<string | null>(initialDoc.selectedImageId);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [isDownloadMenuOpen, setIsDownloadMenuOpen] = useState(false);
+  const [zoomPercent, setZoomPercent] = useState(100);
+  const [isPanningCanvas, setIsPanningCanvas] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const downloadMenuRef = useRef<HTMLDivElement>(null);
+  const canvasViewportRef = useRef<HTMLDivElement>(null);
+  const panStateRef = useRef<{
+    startClientX: number;
+    startClientY: number;
+    startScrollLeft: number;
+    startScrollTop: number;
+  } | null>(null);
   const isHydrated = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -162,6 +211,7 @@ function EditorPageContent() {
       height,
       backgroundColor: "#ffffff",
       showGrid: true,
+      imageBoxes: [],
       textBoxes: [],
     }
   );
@@ -170,6 +220,9 @@ function EditorPageContent() {
   const selectedTextBox = useMemo(() => {
     return activePage.textBoxes.find((box) => box.id === selectedTextId) || null;
   }, [activePage.textBoxes, selectedTextId]);
+  const selectedImageBox = useMemo(() => {
+    return activePage.imageBoxes.find((box) => box.id === selectedImageId) || null;
+  }, [activePage.imageBoxes, selectedImageId]);
 
   const visiblePages = isHydrated ? pages : fallbackDoc.pages;
   const visibleActivePageId = isHydrated ? activePageId : fallbackDoc.activePageId;
@@ -181,11 +234,33 @@ function EditorPageContent() {
       height,
       backgroundColor: "#ffffff",
       showGrid: true,
+      imageBoxes: [],
       textBoxes: [],
     }
   );
   }, [height, visibleActivePageId, visiblePages, width]);
   const visibleSelectedTextBox = isHydrated ? selectedTextBox : null;
+  const visibleSelectedImageBox = isHydrated ? selectedImageBox : null;
+  const zoomScale = zoomPercent / 100;
+  const filenameBase = useMemo(() => {
+    const slug = label
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+
+    return slug || "design";
+  }, [label]);
+
+  const getActivePageLayerBounds = () => {
+    const layers = [...activePage.imageBoxes, ...activePage.textBoxes].map((item) =>
+      Math.round(toSafeNumber(item.layer ?? 0, 0)),
+    );
+    if (layers.length === 0) {
+      return { min: 0, max: 0 };
+    }
+    return { min: Math.min(...layers), max: Math.max(...layers) };
+  };
 
   const addPage = () => {
     const source = activePage;
@@ -195,12 +270,14 @@ function EditorPageContent() {
       height: source.height,
       backgroundColor: source.backgroundColor,
       showGrid: source.showGrid,
+      imageBoxes: [],
       textBoxes: [],
     };
 
     setPages((prev) => [...prev, newPage]);
     setActivePageId(newPage.id);
     setSelectedTextId(null);
+    setSelectedImageId(null);
   };
 
   const duplicatePage = (pageId: string) => {
@@ -214,6 +291,7 @@ function EditorPageContent() {
       height: source.height,
       backgroundColor: source.backgroundColor,
       showGrid: source.showGrid,
+      imageBoxes: source.imageBoxes.map((box) => ({ ...box, id: createImageId() })),
       textBoxes: source.textBoxes.map((box) => ({ ...box, id: createTextId() })),
     };
 
@@ -222,6 +300,7 @@ function EditorPageContent() {
     setPages(next);
     setActivePageId(copy.id);
     setSelectedTextId(null);
+    setSelectedImageId(null);
   };
 
   const deletePage = (pageId: string) => {
@@ -236,6 +315,7 @@ function EditorPageContent() {
       const fallbackIndex = Math.max(0, sourceIndex - 1);
       setActivePageId(next[fallbackIndex]?.id ?? next[0].id);
       setSelectedTextId(null);
+      setSelectedImageId(null);
     }
   };
 
@@ -253,6 +333,7 @@ function EditorPageContent() {
   };
 
   const addTextBox = () => {
+    const { max } = getActivePageLayerBounds();
     const newText: CanvasTextBox = {
       id: createTextId(),
       x: Math.max(30, Math.round(activePage.width * 0.2)),
@@ -265,6 +346,7 @@ function EditorPageContent() {
       textAlign: "left",
       color: "#0f172a",
       rotation: 0,
+      layer: max + 1,
     };
 
     setPages((prev) =>
@@ -273,6 +355,150 @@ function EditorPageContent() {
       ),
     );
     setSelectedTextId(newText.id);
+    setSelectedImageId(null);
+  };
+
+  const addImageFromDataUrl = (src: string, naturalWidth: number, naturalHeight: number) => {
+    if (!src) return;
+    const { max } = getActivePageLayerBounds();
+
+    const maxW = Math.max(80, activePage.width * 0.7);
+    const maxH = Math.max(80, activePage.height * 0.7);
+    const rawW = naturalWidth > 0 ? naturalWidth : 800;
+    const rawH = naturalHeight > 0 ? naturalHeight : 600;
+    const scale = Math.min(maxW / rawW, maxH / rawH, 1);
+
+    const boxWidth = Math.max(80, Math.round(rawW * scale));
+    const boxHeight = Math.max(80, Math.round(rawH * scale));
+    const newImage: CanvasImageBox = {
+      id: createImageId(),
+      x: Math.max(10, Math.round((activePage.width - boxWidth) * 0.5)),
+      y: Math.max(10, Math.round((activePage.height - boxHeight) * 0.35)),
+      width: boxWidth,
+      height: boxHeight,
+      src,
+      opacity: 1,
+      rotation: 0,
+      layer: max + 1,
+    };
+
+    setPages((prev) =>
+      prev.map((page) =>
+        page.id === activePage.id ? { ...page, imageBoxes: [...page.imageBoxes, newImage] } : page,
+      ),
+    );
+    setSelectedImageId(newImage.id);
+    setSelectedTextId(null);
+  };
+
+  const handleImageInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.currentTarget.value = "";
+    if (!file || !file.type.startsWith("image/")) return;
+
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+        reader.onerror = () => reject(new Error("Unable to read image file."));
+        reader.readAsDataURL(file);
+      });
+
+      const dimensions = await new Promise<{ width: number; height: number }>((resolve) => {
+        const img = new Image();
+        img.onload = () => resolve({ width: img.naturalWidth || 0, height: img.naturalHeight || 0 });
+        img.onerror = () => resolve({ width: 0, height: 0 });
+        img.src = dataUrl;
+      });
+
+      addImageFromDataUrl(dataUrl, dimensions.width, dimensions.height);
+    } catch {
+      setExportError("Unable to insert image.");
+    }
+  };
+
+  const updateImageBox = (imageId: string, updates: Partial<CanvasImageBox>) => {
+    setPages((prev) =>
+      prev.map((page) =>
+        page.id === activePage.id
+          ? {
+              ...page,
+              imageBoxes: page.imageBoxes.map((box) => (box.id === imageId ? { ...box, ...updates } : box)),
+            }
+          : page,
+      ),
+    );
+  };
+
+  const updateSelectedImageBox = (updates: Partial<CanvasImageBox>) => {
+    if (!selectedImageBox) return;
+    updateImageBox(selectedImageBox.id, updates);
+  };
+
+  const reorderActiveElement = (target: { type: "image" | "text"; id: string }, position: "front" | "back") => {
+    setPages((prev) =>
+      prev.map((page) => {
+        if (page.id !== activePage.id) return page;
+
+        const combined = [
+          ...page.imageBoxes.map((box) => ({
+            type: "image" as const,
+            id: box.id,
+            layer: Math.round(toSafeNumber(box.layer ?? 1, 1)),
+          })),
+          ...page.textBoxes.map((box) => ({
+            type: "text" as const,
+            id: box.id,
+            layer: Math.round(toSafeNumber(box.layer ?? 1, 1)),
+          })),
+        ].sort((a, b) => a.layer - b.layer);
+
+        const sourceIndex = combined.findIndex((item) => item.type === target.type && item.id === target.id);
+        if (sourceIndex < 0) return page;
+
+        const next = [...combined];
+        const [moved] = next.splice(sourceIndex, 1);
+        if (position === "front") {
+          next.push(moved);
+        } else {
+          next.unshift(moved);
+        }
+
+        const layerMap = new Map<string, number>();
+        next.forEach((item, index) => {
+          layerMap.set(`${item.type}:${item.id}`, index + 1);
+        });
+
+        return {
+          ...page,
+          imageBoxes: page.imageBoxes.map((box) => ({
+            ...box,
+            layer: layerMap.get(`image:${box.id}`) ?? 1,
+          })),
+          textBoxes: page.textBoxes.map((box) => ({
+            ...box,
+            layer: layerMap.get(`text:${box.id}`) ?? 1,
+          })),
+        };
+      }),
+    );
+  };
+
+  const reorderSelectedImageBox = (position: "front" | "back") => {
+    if (!selectedImageBox) return;
+    reorderActiveElement({ type: "image", id: selectedImageBox.id }, position);
+  };
+
+  const deleteSelectedImageBox = () => {
+    if (!selectedImageBox) return;
+    setPages((prev) =>
+      prev.map((page) =>
+        page.id === activePage.id
+          ? { ...page, imageBoxes: page.imageBoxes.filter((box) => box.id !== selectedImageBox.id) }
+          : page,
+      ),
+    );
+    setSelectedImageId(null);
   };
 
   const updateTextBox = (textId: string, updates: Partial<CanvasTextBox>) => {
@@ -293,14 +519,99 @@ function EditorPageContent() {
     updateTextBox(selectedTextBox.id, updates);
   };
 
+  const reorderSelectedTextBox = (position: "front" | "back") => {
+    if (!selectedTextBox) return;
+    reorderActiveElement({ type: "text", id: selectedTextBox.id }, position);
+  };
+
+  const deleteSelectedTextBox = () => {
+    if (!selectedTextBox) return;
+
+    setPages((prev) =>
+      prev.map((page) =>
+        page.id === activePage.id
+          ? { ...page, textBoxes: page.textBoxes.filter((box) => box.id !== selectedTextBox.id) }
+          : page,
+      ),
+    );
+    setSelectedTextId(null);
+  };
+
   const updateActivePage = (updates: Partial<CanvasPage>) => {
     setPages((prev) => prev.map((page) => (page.id === activePage.id ? { ...page, ...updates } : page)));
+  };
+
+  const handleDownloadImage = async (format: "png" | "jpg") => {
+    if (!isHydrated) return;
+
+    const pageNumber = Math.max(1, pages.findIndex((page) => page.id === activePage.id) + 1);
+
+    try {
+      setIsExporting(true);
+      setExportError(null);
+      await exportDesignAsImage(activePage, format, `${filenameBase}-page-${pageNumber}`);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Unable to export image.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!isHydrated) return;
+
+    try {
+      setIsExporting(true);
+      setExportError(null);
+      await exportDesignAsPdf(pages, filenameBase);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Unable to export PDF.");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   useEffect(() => {
     if (!readAuthSession()) {
       window.location.replace("/signin");
     }
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (event: MouseEvent) => {
+      const viewport = canvasViewportRef.current;
+      const panState = panStateRef.current;
+      if (!viewport || !panState) return;
+
+      const deltaX = event.clientX - panState.startClientX;
+      const deltaY = event.clientY - panState.startClientY;
+      viewport.scrollLeft = panState.startScrollLeft - deltaX;
+      viewport.scrollTop = panState.startScrollTop - deltaY;
+    };
+
+    const handleMouseUp = () => {
+      panStateRef.current = null;
+      setIsPanningCanvas(false);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!downloadMenuRef.current) return;
+      if (!downloadMenuRef.current.contains(event.target as Node)) {
+        setIsDownloadMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
   }, []);
 
   useEffect(() => {
@@ -322,10 +633,11 @@ function EditorPageContent() {
       pages,
       activePageId,
       selectedTextId,
+      selectedImageId,
     };
 
     window.localStorage.setItem(getDocStorageKey(preset, width, height), JSON.stringify(doc));
-  }, [activePageId, height, pages, preset, selectedTextId, width]);
+  }, [activePageId, height, pages, preset, selectedImageId, selectedTextId, width]);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(140deg,#f1f5f9_0%,#e2e8f0_35%,#f8fafc_100%)] p-4 text-slate-900">
@@ -340,14 +652,29 @@ function EditorPageContent() {
             <p className="text-xs text-slate-500">
               {visiblePages.length} page{visiblePages.length > 1 ? "s" : ""}
             </p>
+            {exportError && <p className="text-xs text-rose-600">{exportError}</p>}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <button
               type="button"
               onClick={addTextBox}
               className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
             >
               + Text
+            </button>
+            <input
+              ref={imageInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleImageInputChange}
+            />
+            <button
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
+            >
+              + Image
             </button>
             <button
               type="button"
@@ -362,6 +689,63 @@ function EditorPageContent() {
             >
               Change Page Size
             </Link>
+            <div className="relative" ref={downloadMenuRef}>
+              <button
+                type="button"
+                onClick={() => setIsDownloadMenuOpen((prev) => !prev)}
+                disabled={isExporting || !isHydrated}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4 fill-none stroke-current stroke-[1.8]">
+                  <path d="M10 2.5v9.5" strokeLinecap="round" />
+                  <path d="m6.5 9.5 3.5 3.5 3.5-3.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M3.5 15.5h13" strokeLinecap="round" />
+                </svg>
+                Download
+                <svg
+                  viewBox="0 0 20 20"
+                  aria-hidden="true"
+                  className={`h-3.5 w-3.5 transition ${isDownloadMenuOpen ? "rotate-180" : ""}`}
+                >
+                  <path d="m5 7 5 6 5-6H5Z" className="fill-current" />
+                </svg>
+              </button>
+
+              {isDownloadMenuOpen && (
+                <div className="absolute right-0 z-20 mt-2 w-36 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIsDownloadMenuOpen(false);
+                      await handleDownloadImage("png");
+                    }}
+                    className="block w-full px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100"
+                  >
+                    Download PNG
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIsDownloadMenuOpen(false);
+                      await handleDownloadImage("jpg");
+                    }}
+                    className="block w-full px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100"
+                  >
+                    Download JPG
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIsDownloadMenuOpen(false);
+                      await handleDownloadPdf();
+                    }}
+                    className="block w-full px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-100"
+                  >
+                    Download PDF
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
@@ -455,6 +839,133 @@ function EditorPageContent() {
                 className="w-14 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
               />
             </label>
+            <button
+              type="button"
+              onClick={() => reorderSelectedTextBox("front")}
+              className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Bring Front
+            </button>
+            <button
+              type="button"
+              onClick={() => reorderSelectedTextBox("back")}
+              className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Send Back
+            </button>
+            <button
+              type="button"
+              onClick={deleteSelectedTextBox}
+              className="shrink-0 rounded-md border border-rose-300 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100"
+            >
+              Delete
+            </button>
+          </section>
+        ) : visibleSelectedImageBox ? (
+          <section className="flex h-12 items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white px-3 shadow-sm">
+            <p className="mr-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Image</p>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              W
+              <input
+                type="number"
+                min={40}
+                max={5000}
+                value={Math.round(visibleSelectedImageBox.width)}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedImageBox({ width: Math.max(40, Math.min(5000, value)) });
+                }}
+                className="w-16 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
+              />
+            </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              H
+              <input
+                type="number"
+                min={40}
+                max={5000}
+                value={Math.round(visibleSelectedImageBox.height)}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedImageBox({ height: Math.max(40, Math.min(5000, value)) });
+                }}
+                className="w-16 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
+              />
+            </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Opacity
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={Math.round((visibleSelectedImageBox.opacity ?? 1) * 100)}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  const clamped = Math.max(0, Math.min(100, value));
+                  updateSelectedImageBox({ opacity: clamped / 100 });
+                }}
+                className="w-20 accent-sky-600"
+              />
+              <span className="w-8 text-right text-[10px] text-slate-500">
+                {Math.round((visibleSelectedImageBox.opacity ?? 1) * 100)}%
+              </span>
+            </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Rotate
+              <input
+                type="range"
+                min={-180}
+                max={180}
+                step={1}
+                value={visibleSelectedImageBox.rotation ?? 0}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  const clamped = Math.max(-180, Math.min(180, value));
+                  updateSelectedImageBox({ rotation: clamped });
+                }}
+                className="w-20 accent-sky-600"
+              />
+              <input
+                type="number"
+                min={-180}
+                max={180}
+                step={1}
+                value={visibleSelectedImageBox.rotation ?? 0}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  const clamped = Math.max(-180, Math.min(180, value));
+                  updateSelectedImageBox({ rotation: clamped });
+                }}
+                className="w-14 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => reorderSelectedImageBox("front")}
+              className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Bring Front
+            </button>
+            <button
+              type="button"
+              onClick={() => reorderSelectedImageBox("back")}
+              className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Send Back
+            </button>
+            <button
+              type="button"
+              onClick={deleteSelectedImageBox}
+              className="ml-1 shrink-0 rounded-md border border-rose-300 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100"
+            >
+              Delete
+            </button>
           </section>
         ) : (
           <section className="flex h-12 items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white px-3 shadow-sm">
@@ -479,22 +990,93 @@ function EditorPageContent() {
             >
               Grid {visibleActivePage.showGrid ? "Visible" : "Hidden"}
             </button>
+            <div className="ml-2 inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-300 bg-white p-1">
+              <button
+                type="button"
+                onClick={() => setZoomPercent((prev) => clamp(prev - 10, 20, 300))}
+                className="h-6 w-6 rounded border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                title="Zoom out"
+              >
+                -
+              </button>
+              <span className="min-w-12 text-center text-xs font-semibold text-slate-700">{zoomPercent}%</span>
+              <button
+                type="button"
+                onClick={() => setZoomPercent((prev) => clamp(prev + 10, 20, 300))}
+                className="h-6 w-6 rounded border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                title="Zoom in"
+              >
+                +
+              </button>
+            </div>
           </section>
         )}
 
         <section className="min-h-[calc(100vh-120px)] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 p-4">
           <div className="flex h-[calc(100vh-160px)] gap-4">
-            <div className="flex-1 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-5">
-              <DesignCanvas
-                width={visibleActivePage.width}
-                height={visibleActivePage.height}
-                backgroundColor={visibleActivePage.backgroundColor}
-                showGrid={visibleActivePage.showGrid}
-                textBoxes={visibleActivePage.textBoxes}
-                selectedTextId={isHydrated ? selectedTextId : null}
-                onSelectText={setSelectedTextId}
-                onUpdateTextBox={updateTextBox}
-              />
+            <div
+              ref={canvasViewportRef}
+              className={`flex-1 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-5 ${
+                isPanningCanvas ? "cursor-grabbing" : "cursor-grab"
+              }`}
+              onMouseDown={(event) => {
+                if (event.button !== 0) return;
+                const target = event.target as Element | null;
+                if (!target) return;
+
+                // Don't pan when interacting with form controls or selected design elements.
+                if (target.closest("input, textarea, button, a, label, [data-canvas-element='true']")) {
+                  return;
+                }
+
+                const viewport = canvasViewportRef.current;
+                if (!viewport) return;
+
+                panStateRef.current = {
+                  startClientX: event.clientX,
+                  startClientY: event.clientY,
+                  startScrollLeft: viewport.scrollLeft,
+                  startScrollTop: viewport.scrollTop,
+                };
+                setIsPanningCanvas(true);
+                event.preventDefault();
+              }}
+            >
+              <div
+                className="mx-auto"
+                style={{
+                  width: Math.max(1, Math.round(visibleActivePage.width * zoomScale)),
+                  height: Math.max(1, Math.round(visibleActivePage.height * zoomScale)),
+                }}
+              >
+                <div
+                  style={{
+                    width: visibleActivePage.width,
+                    height: visibleActivePage.height,
+                    transform: `scale(${zoomScale})`,
+                    transformOrigin: "top left",
+                  }}
+                >
+                  <DesignCanvas
+                    width={visibleActivePage.width}
+                    height={visibleActivePage.height}
+                    zoom={zoomScale}
+                    backgroundColor={visibleActivePage.backgroundColor}
+                    showGrid={visibleActivePage.showGrid}
+                    imageBoxes={visibleActivePage.imageBoxes}
+                    selectedImageId={isHydrated ? selectedImageId : null}
+                    onSelectImage={setSelectedImageId}
+                    onUpdateImageBox={updateImageBox}
+                    textBoxes={visibleActivePage.textBoxes}
+                    selectedTextId={isHydrated ? selectedTextId : null}
+                    onSelectText={(id) => {
+                      setSelectedTextId(id);
+                      if (id) setSelectedImageId(null);
+                    }}
+                    onUpdateTextBox={updateTextBox}
+                  />
+                </div>
+              </div>
             </div>
 
             <aside className="w-28 shrink-0 overflow-auto rounded-xl border border-slate-200 bg-white p-2">
@@ -533,6 +1115,7 @@ function EditorPageContent() {
                         onClick={() => {
                           setActivePageId(page.id);
                           setSelectedTextId(null);
+                          setSelectedImageId(null);
                         }}
                         aria-label={`Open page ${index + 1}`}
                         title={`Page ${index + 1}`}
@@ -541,14 +1124,78 @@ function EditorPageContent() {
                         } ${dragOverPageId === page.id ? "ring-2 ring-sky-300" : ""}`}
                       >
                         <span
-                          className="relative block border border-slate-300 bg-white shadow-sm"
-                          style={{ width: thumbWidth, height: thumbHeight }}
+                          className="relative block overflow-hidden border border-slate-300 shadow-sm"
+                          style={{ width: thumbWidth, height: thumbHeight, backgroundColor: page.backgroundColor || "#ffffff" }}
                         >
-                          {page.textBoxes.length > 0 && (
-                            <span className="absolute right-1 top-1 rounded-full bg-slate-700 px-1.5 py-0.5 text-[9px] leading-none text-white">
-                              {page.textBoxes.length}
-                            </span>
+                          {page.showGrid && (
+                            <span
+                              className="pointer-events-none absolute inset-0 opacity-25"
+                              style={{
+                                backgroundImage:
+                                  "linear-gradient(to right, #cbd5e1 1px, transparent 1px), linear-gradient(to bottom, #cbd5e1 1px, transparent 1px)",
+                                backgroundSize: `${Math.max(4, Math.round(24 * thumbScale))}px ${Math.max(4, Math.round(24 * thumbScale))}px`,
+                              }}
+                            />
                           )}
+                          {page.imageBoxes.map((image) => {
+                            const previewX = Math.max(0, toSafeNumber(image.x, 0) * thumbScale);
+                            const previewY = Math.max(0, toSafeNumber(image.y, 0) * thumbScale);
+                            const previewWidth = Math.max(2, toSafeNumber(image.width, 280) * thumbScale);
+                            const previewHeight = Math.max(2, toSafeNumber(image.height, 180) * thumbScale);
+                            const previewOpacity = clamp(toSafeNumber(image.opacity ?? 1, 1), 0, 1);
+                            const previewRotation = clamp(toSafeNumber(image.rotation ?? 0, 0), -180, 180);
+
+                            return (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                key={image.id}
+                                src={image.src}
+                                alt=""
+                                className="pointer-events-none absolute object-cover"
+                                style={{
+                                  left: previewX,
+                                  top: previewY,
+                                  width: previewWidth,
+                                  height: previewHeight,
+                                  opacity: previewOpacity,
+                                  transform: `rotate(${previewRotation}deg)`,
+                                  transformOrigin: "center center",
+                                  zIndex: Math.round(toSafeNumber(image.layer ?? 0, 0)),
+                                }}
+                              />
+                            );
+                          })}
+                          {page.textBoxes.map((box) => {
+                            const previewX = Math.max(0, toSafeNumber(box.x, 0) * thumbScale);
+                            const previewY = Math.max(0, toSafeNumber(box.y, 0) * thumbScale);
+                            const previewWidth = Math.max(2, toSafeNumber(box.width, 260) * thumbScale);
+                            const previewHeight = Math.max(2, toSafeNumber(box.height, 90) * thumbScale);
+                            const previewFontSize = Math.max(2, toSafeNumber(box.fontSize ?? 42, 42) * thumbScale);
+                            const previewRotation = clamp(toSafeNumber(box.rotation ?? 0, 0), -180, 180);
+
+                            return (
+                              <span
+                                key={box.id}
+                                className="absolute block overflow-hidden whitespace-pre-wrap break-words leading-tight"
+                                style={{
+                                  left: previewX,
+                                  top: previewY,
+                                  width: previewWidth,
+                                  height: previewHeight,
+                                  fontSize: previewFontSize,
+                                  fontWeight: box.fontWeight || "700",
+                                  textAlign: box.textAlign || "left",
+                                  color: box.color || "#0f172a",
+                                  transform: `rotate(${previewRotation}deg)`,
+                                  transformOrigin: "center center",
+                                  lineHeight: 1.2,
+                                  zIndex: Math.round(toSafeNumber(box.layer ?? 0, 0)),
+                                }}
+                              >
+                                {box.text}
+                              </span>
+                            );
+                          })}
                         </span>
                       </button>
 

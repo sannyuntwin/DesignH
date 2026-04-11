@@ -14,13 +14,31 @@ export type CanvasTextBox = {
   textAlign?: "left" | "center" | "right";
   color?: string;
   rotation?: number;
+  layer?: number;
+};
+
+export type CanvasImageBox = {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  src: string;
+  opacity?: number;
+  rotation?: number;
+  layer?: number;
 };
 
 type DesignCanvasProps = {
   width: number;
   height: number;
+  zoom?: number;
   backgroundColor?: string;
   showGrid?: boolean;
+  imageBoxes: CanvasImageBox[];
+  selectedImageId: string | null;
+  onSelectImage: (id: string | null) => void;
+  onUpdateImageBox: (id: string, updates: Partial<CanvasImageBox>) => void;
   textBoxes: CanvasTextBox[];
   selectedTextId: string | null;
   onSelectText: (id: string | null) => void;
@@ -57,6 +75,8 @@ const DEFAULT_TEXT_BOX_WIDTH = 260;
 const DEFAULT_TEXT_BOX_HEIGHT = 90;
 const DEFAULT_FONT_SIZE = 42;
 const DEFAULT_TEXT_COLOR = "#0f172a";
+const DEFAULT_IMAGE_BOX_WIDTH = 280;
+const DEFAULT_IMAGE_BOX_HEIGHT = 180;
 
 function toFiniteNumber(value: number, fallback: number) {
   return Number.isFinite(value) ? value : fallback;
@@ -73,8 +93,13 @@ function normalizeAngle(value: number) {
 export default function DesignCanvas({
   width,
   height,
+  zoom = 1,
   backgroundColor = "#ffffff",
   showGrid = true,
+  imageBoxes,
+  selectedImageId,
+  onSelectImage,
+  onUpdateImageBox,
   textBoxes,
   selectedTextId,
   onSelectText,
@@ -85,13 +110,16 @@ export default function DesignCanvas({
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [resizeState, setResizeState] = useState<ResizeState | null>(null);
   const [rotateState, setRotateState] = useState<RotateState | null>(null);
+  const [imageDragState, setImageDragState] = useState<DragState | null>(null);
+  const [imageResizeState, setImageResizeState] = useState<ResizeState | null>(null);
+  const zoomScale = Math.max(0.1, zoom);
 
   useEffect(() => {
-    if (!dragState || resizeState || rotateState) return;
+    if (!dragState || resizeState || rotateState || imageDragState || imageResizeState) return;
 
     const handleMouseMove = (event: MouseEvent) => {
-      const deltaX = event.clientX - dragState.startClientX;
-      const deltaY = event.clientY - dragState.startClientY;
+      const deltaX = (event.clientX - dragState.startClientX) / zoomScale;
+      const deltaY = (event.clientY - dragState.startClientY) / zoomScale;
 
       const maxX = Math.max(0, width - dragState.boxWidth);
       const maxY = Math.max(0, height - dragState.boxHeight);
@@ -111,17 +139,17 @@ export default function DesignCanvas({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [dragState, height, onUpdateTextBox, resizeState, rotateState, width]);
+  }, [dragState, height, imageDragState, imageResizeState, onUpdateTextBox, resizeState, rotateState, width, zoomScale]);
 
   useEffect(() => {
-    if (!resizeState || rotateState) return;
+    if (!resizeState || rotateState || imageDragState || imageResizeState) return;
 
     const MIN_WIDTH = 120;
     const MIN_HEIGHT = 48;
 
     const handleMouseMove = (event: MouseEvent) => {
-      const deltaX = event.clientX - resizeState.startClientX;
-      const deltaY = event.clientY - resizeState.startClientY;
+      const deltaX = (event.clientX - resizeState.startClientX) / zoomScale;
+      const deltaY = (event.clientY - resizeState.startClientY) / zoomScale;
 
       const maxWidth = Math.max(MIN_WIDTH, width - resizeState.x);
       const maxHeight = Math.max(MIN_HEIGHT, height - resizeState.y);
@@ -142,7 +170,7 @@ export default function DesignCanvas({
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [height, onUpdateTextBox, resizeState, rotateState, width]);
+  }, [height, imageDragState, imageResizeState, onUpdateTextBox, resizeState, rotateState, width, zoomScale]);
 
   useEffect(() => {
     if (!rotateState) return;
@@ -165,6 +193,64 @@ export default function DesignCanvas({
     };
   }, [onUpdateTextBox, rotateState]);
 
+  useEffect(() => {
+    if (!imageDragState || imageResizeState || dragState || resizeState || rotateState) return;
+
+    const handleMouseMove = (event: MouseEvent) => {
+      const deltaX = (event.clientX - imageDragState.startClientX) / zoomScale;
+      const deltaY = (event.clientY - imageDragState.startClientY) / zoomScale;
+
+      const maxX = Math.max(0, width - imageDragState.boxWidth);
+      const maxY = Math.max(0, height - imageDragState.boxHeight);
+      const nextX = Math.max(0, Math.min(maxX, imageDragState.startX + deltaX));
+      const nextY = Math.max(0, Math.min(maxY, imageDragState.startY + deltaY));
+
+      onUpdateImageBox(imageDragState.id, { x: nextX, y: nextY });
+    };
+
+    const handleMouseUp = () => {
+      setImageDragState(null);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [dragState, height, imageDragState, imageResizeState, onUpdateImageBox, resizeState, rotateState, width, zoomScale]);
+
+  useEffect(() => {
+    if (!imageResizeState || imageDragState || dragState || resizeState || rotateState) return;
+
+    const MIN_WIDTH = 40;
+    const MIN_HEIGHT = 40;
+
+    const handleMouseMove = (event: MouseEvent) => {
+      const deltaX = (event.clientX - imageResizeState.startClientX) / zoomScale;
+      const deltaY = (event.clientY - imageResizeState.startClientY) / zoomScale;
+
+      const maxWidth = Math.max(MIN_WIDTH, width - imageResizeState.x);
+      const maxHeight = Math.max(MIN_HEIGHT, height - imageResizeState.y);
+
+      const nextWidth = Math.max(MIN_WIDTH, Math.min(maxWidth, imageResizeState.startWidth + deltaX));
+      const nextHeight = Math.max(MIN_HEIGHT, Math.min(maxHeight, imageResizeState.startHeight + deltaY));
+
+      onUpdateImageBox(imageResizeState.id, { width: nextWidth, height: nextHeight });
+    };
+
+    const handleMouseUp = () => {
+      setImageResizeState(null);
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [dragState, height, imageDragState, imageResizeState, onUpdateImageBox, resizeState, rotateState, width, zoomScale]);
+
   return (
     <div
       id="design-canvas"
@@ -174,6 +260,7 @@ export default function DesignCanvas({
       onMouseDown={(event) => {
         if (event.target === canvasRef.current) {
           onSelectText(null);
+          onSelectImage(null);
         }
         setEditingId(null);
       }}
@@ -182,6 +269,86 @@ export default function DesignCanvas({
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(to_right,#e2e8f0_1px,transparent_1px),linear-gradient(to_bottom,#e2e8f0_1px,transparent_1px)] bg-[size:24px_24px] opacity-30" />
       )}
       <div className="pointer-events-none absolute inset-0 border border-slate-200" />
+
+      {imageBoxes.map((image) => {
+        const imageX = toFiniteNumber(image.x, 0);
+        const imageY = toFiniteNumber(image.y, 0);
+        const imageWidth = Math.max(10, toFiniteNumber(image.width, DEFAULT_IMAGE_BOX_WIDTH));
+        const imageHeight = Math.max(10, toFiniteNumber(image.height, DEFAULT_IMAGE_BOX_HEIGHT));
+        const imageOpacity = Math.max(0, Math.min(1, toFiniteNumber(image.opacity ?? 1, 1)));
+        const imageRotation = normalizeAngle(image.rotation ?? 0);
+        const isSelected = selectedImageId === image.id;
+
+        return (
+          <div
+            key={image.id}
+            data-canvas-element="true"
+            className={`absolute overflow-hidden rounded border ${
+              isSelected ? "border-sky-500/90 shadow-[0_0_0_1px_rgba(14,165,233,0.35)]" : "border-transparent"
+            } cursor-move select-none`}
+            style={{
+              left: imageX,
+              top: imageY,
+              width: imageWidth,
+              height: imageHeight,
+              transform: `rotate(${imageRotation}deg)`,
+              transformOrigin: "center center",
+              opacity: imageOpacity,
+              zIndex: Math.round(toFiniteNumber(image.layer ?? 0, 0)),
+            }}
+            onMouseDown={(event) => {
+              event.stopPropagation();
+              event.preventDefault();
+              onSelectImage(image.id);
+              onSelectText(null);
+              setEditingId(null);
+              setDragState(null);
+              setResizeState(null);
+              setRotateState(null);
+
+              if (imageResizeState) return;
+
+              setImageDragState({
+                id: image.id,
+                startClientX: event.clientX,
+                startClientY: event.clientY,
+                startX: imageX,
+                startY: imageY,
+                boxWidth: imageWidth,
+                boxHeight: imageHeight,
+              });
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={image.src} alt="" draggable={false} className="pointer-events-none h-full w-full object-cover" />
+
+            {isSelected && (
+              <button
+                type="button"
+                aria-label="Resize image"
+                className="absolute bottom-0 right-0 h-3 w-3 translate-x-1/2 translate-y-1/2 cursor-se-resize rounded-sm border border-white bg-sky-500 shadow"
+                onMouseDown={(event) => {
+                  event.stopPropagation();
+                  event.preventDefault();
+                  setImageResizeState({
+                    id: image.id,
+                    startClientX: event.clientX,
+                    startClientY: event.clientY,
+                    startWidth: imageWidth,
+                    startHeight: imageHeight,
+                    x: imageX,
+                    y: imageY,
+                  });
+                  setImageDragState(null);
+                  setDragState(null);
+                  setResizeState(null);
+                  setRotateState(null);
+                }}
+              />
+            )}
+          </div>
+        );
+      })}
 
       {textBoxes.map((box) => {
         const boxX = toFiniteNumber(box.x, 0);
@@ -199,9 +366,10 @@ export default function DesignCanvas({
         return (
           <div
             key={box.id}
+            data-canvas-element="true"
             className={`absolute rounded border px-1.5 py-1 ${
               isSelected ? "border-sky-500/90 shadow-[0_0_0_1px_rgba(14,165,233,0.35)]" : "border-transparent"
-            } ${isEditing ? "cursor-text" : "cursor-move"}`}
+            } ${isEditing ? "cursor-text" : "cursor-move select-none"}`}
             style={{
               left: boxX,
               top: boxY,
@@ -209,12 +377,19 @@ export default function DesignCanvas({
               height: boxHeight,
               transform: `rotate(${boxRotation}deg)`,
               transformOrigin: "center center",
+              zIndex: Math.round(toFiniteNumber(box.layer ?? 0, 0)),
             }}
             onMouseDown={(event) => {
               event.stopPropagation();
               onSelectText(box.id);
+              onSelectImage(null);
 
-              if (isEditing || resizeState || rotateState) return;
+              if (!isEditing) {
+                // Prevent browser text highlight while clicking/dragging the box.
+                event.preventDefault();
+              }
+
+              if (isEditing || resizeState || rotateState || imageDragState || imageResizeState) return;
 
               setDragState({
                 id: box.id,
@@ -293,6 +468,8 @@ export default function DesignCanvas({
                   });
                   setDragState(null);
                   setRotateState(null);
+                  setImageDragState(null);
+                  setImageResizeState(null);
                 }}
               />
             )}
@@ -317,6 +494,8 @@ export default function DesignCanvas({
                     });
                     setDragState(null);
                     setResizeState(null);
+                    setImageDragState(null);
+                    setImageResizeState(null);
                   }}
                 />
               </>
@@ -325,10 +504,10 @@ export default function DesignCanvas({
         );
       })}
 
-      {textBoxes.length === 0 && (
+      {textBoxes.length === 0 && imageBoxes.length === 0 && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <p className="rounded-md bg-white/90 px-3 py-1 text-xs font-medium text-slate-500 shadow-sm">
-            Click + Text to add a text box
+            Click + Text or + Image to add elements
           </p>
         </div>
       )}
