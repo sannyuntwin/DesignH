@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import auth, designs, teams, templates, assets, files, analytics, search, security, profile, comments, versions, export, collaborators
 from app import models  # ensure all SQLAlchemy models are registered
+from app.core.config import settings
 
 app = FastAPI(
     title="Design Editor API",
@@ -12,7 +13,7 @@ app = FastAPI(
 # CORS middleware to allow requests from Next.js frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=settings.cors_origins_list(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
