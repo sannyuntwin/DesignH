@@ -29,6 +29,10 @@ function sanitizeHexColor(value: unknown, fallback: string) {
   return /^#(?:[0-9a-fA-F]{3}){1,2}$/.test(trimmed) ? trimmed : fallback;
 }
 
+function escapeFontFamily(value: string) {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 function wrapTextLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
   const lines: string[] = [];
   const paragraphs = (text || "").split(/\r?\n/);
@@ -69,6 +73,21 @@ async function loadImage(src: string) {
   });
 }
 
+async function ensureExportFontsLoaded(textBoxes: CanvasTextBox[]) {
+  if (typeof document === "undefined" || !("fonts" in document)) return;
+
+  const requests = textBoxes.map((box) => {
+    const family = escapeFontFamily(box.fontFamily || "Arial");
+    const weight = box.fontWeight || "700";
+    const size = Math.max(8, normalizeNumber(box.fontSize ?? 42, 42));
+    return `${weight} ${size}px "${family}"`;
+  });
+
+  await Promise.all(
+    Array.from(new Set(requests)).map((fontSpec) => (document as Document & { fonts: FontFaceSet }).fonts.load(fontSpec).catch(() => [])),
+  );
+}
+
 async function renderPageToCanvas(page: ExportDesignPage) {
   const width = Math.max(1, Math.round(normalizeNumber(page.width, 1)));
   const height = Math.max(1, Math.round(normalizeNumber(page.height, 1)));
@@ -81,6 +100,8 @@ async function renderPageToCanvas(page: ExportDesignPage) {
   if (!ctx) {
     throw new Error("Canvas rendering is not supported in this browser.");
   }
+
+  await ensureExportFontsLoaded(page.textBoxes);
 
   const fillColor = sanitizeHexColor(page.backgroundColor, "#ffffff");
   if (page.gradientEnabled) {
@@ -163,6 +184,7 @@ async function renderPageToCanvas(page: ExportDesignPage) {
       const [shapeGradientStart, shapeGradientMiddle, shapeGradientEnd] = shapeBox.gradientColors || ["#38bdf8", "#22d3ee", "#818cf8"];
       const shapeStroke = sanitizeHexColor(shapeBox.strokeColor, "#0f172a");
       const shapeStrokeWidth = Math.max(0, normalizeNumber(shapeBox.strokeWidth ?? 2, 2));
+      const normalizedShapeStrokeWidth = Math.max(0, (shapeStrokeWidth * 100) / Math.max(shapeWidth, shapeHeight));
       const shapeType: CanvasShapeKind =
         shapeBox.shapeType === "circle" || shapeBox.shapeType === "triangle" ? shapeBox.shapeType : "square";
 
@@ -196,8 +218,8 @@ async function renderPageToCanvas(page: ExportDesignPage) {
       }
       ctx.fill();
 
-      if (shapeStrokeWidth > 0) {
-        ctx.lineWidth = shapeStrokeWidth;
+      if (normalizedShapeStrokeWidth > 0) {
+        ctx.lineWidth = normalizedShapeStrokeWidth;
         ctx.strokeStyle = shapeStroke;
         ctx.stroke();
       }
@@ -217,27 +239,25 @@ async function renderPageToCanvas(page: ExportDesignPage) {
     const color = box.color || "#0f172a";
     const align = box.textAlign || "left";
     const rotation = normalizeNumber(box.rotation ?? 0, 0);
-    const lineHeight = fontSize * 1.2;
+    const lineHeight = fontSize * 1.25;
+    const topLeading = Math.max(0, (lineHeight - fontSize) / 2);
 
     ctx.save();
     ctx.translate(boxX + boxWidth / 2, boxY + boxHeight / 2);
     ctx.rotate((rotation * Math.PI) / 180);
     ctx.translate(-boxWidth / 2, -boxHeight / 2);
-    ctx.beginPath();
-    ctx.rect(0, 0, boxWidth, boxHeight);
-    ctx.clip();
 
     ctx.fillStyle = color;
-    ctx.font = `${fontWeight} ${fontSize}px "${fontFamily}", Arial, sans-serif`;
+    ctx.font = `${fontWeight} ${fontSize}px "${escapeFontFamily(fontFamily)}", Arial, sans-serif`;
     ctx.textBaseline = "top";
     ctx.textAlign = align;
 
-    const maxLines = Math.max(1, Math.floor(boxHeight / lineHeight));
+    const maxLines = Math.max(1, Math.floor(Math.max(lineHeight, boxHeight - topLeading) / lineHeight));
     const lines = wrapTextLines(ctx, box.text || "", boxWidth).slice(0, maxLines);
     const textX = align === "left" ? 0 : align === "center" ? boxWidth / 2 : boxWidth;
 
     lines.forEach((line, index) => {
-      ctx.fillText(line, textX, index * lineHeight);
+      ctx.fillText(line, textX, topLeading + index * lineHeight);
     });
 
     ctx.restore();
