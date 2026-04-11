@@ -3,6 +3,5 @@
   "framework": "nextjs",
   "installCommand": "npm --prefix web install",
   "buildCommand": "npm --prefix web run build",
-  "devCommand": "npm --prefix web run dev",
-  "outputDirectory": "web/.next"
+  "devCommand": "npm --prefix web run dev"
 }

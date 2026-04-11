@@ -2,6 +2,9 @@
   "name": "designh-monorepo",
   "private": true,
   "scripts": {
+    "build": "npm --prefix web run build",
+    "dev": "npm --prefix web run dev",
+    "start": "npm --prefix web run start",
     "vercel-build": "npm --prefix web run build"
   },
   "dependencies": {
