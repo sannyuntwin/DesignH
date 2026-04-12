@@ -51,10 +51,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
-      - ./database/extended-schema.sql:/docker-entrypoint-initdb.d/02-extended-schema.sql
-      - ./database/brand-kits-schema.sql:/docker-entrypoint-initdb.d/03-brand-kits-schema.sql
-      - ./database/seed.sql:/docker-entrypoint-initdb.d/04-seed.sql
     restart: unless-stopped
     networks:
       - app-network

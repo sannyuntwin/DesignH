@@ -46,6 +46,8 @@ export default function GoogleAuthButton({ onCredential, label = "Continue with 
 
     const initialize = () => {
       if (!window.google || !containerRef.current) return;
+      const containerWidth = containerRef.current.clientWidth || 320;
+      const buttonWidth = Math.max(200, Math.min(320, Math.floor(containerWidth)));
 
       window.google.accounts.id.initialize({
         client_id: clientId,
@@ -67,7 +69,7 @@ export default function GoogleAuthButton({ onCredential, label = "Continue with 
         size: "large",
         text: "continue_with",
         shape: "pill",
-        width: 320,
+        width: buttonWidth,
       });
 
       setIsReady(true);
@@ -99,7 +101,7 @@ export default function GoogleAuthButton({ onCredential, label = "Continue with 
 
   return (
     <div className="space-y-2">
-      <div ref={containerRef} className="flex w-full justify-center" />
+      <div ref={containerRef} className="mx-auto flex w-full max-w-[320px] justify-center" />
       {!isReady && !error && (
         <p className="text-center text-xs text-slate-500">{label}</p>
       )}

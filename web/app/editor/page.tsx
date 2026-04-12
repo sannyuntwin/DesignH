@@ -253,6 +253,7 @@ function sanitizeShapeBox(input: Partial<CanvasShapeBox>, fallbackLayer: number)
     width: clamp(toSafeNumber(input.width, 180), 40, 5000),
     height: clamp(toSafeNumber(input.height, 180), 40, 5000),
     shapeType,
+    fillEnabled: input.fillEnabled !== false,
     fillColor: sanitizeHexColor(input.fillColor, "#38bdf8"),
     gradientEnabled: typeof input.gradientEnabled === "boolean" ? input.gradientEnabled : false,
     gradientDirection: input.gradientDirection === "horizontal" ? "horizontal" : "vertical",
@@ -634,6 +635,7 @@ function EditorPageContent() {
       width: 180,
       height: 180,
       shapeType,
+      fillEnabled: true,
       fillColor: "#38bdf8",
       gradientEnabled: false,
       gradientDirection: "vertical",
@@ -1054,12 +1056,12 @@ function EditorPageContent() {
   }, [activePageId, customFonts, height, pages, preset, selectedImageId, selectedShapeId, selectedTextId, uploadedFonts, width]);
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(140deg,#f1f5f9_0%,#e2e8f0_35%,#f8fafc_100%)] p-0 text-slate-900">
-      <div className="flex w-full flex-col gap-4 px-0 py-3">
-        <header className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+    <main className="min-h-screen bg-[linear-gradient(140deg,#f1f5f9_0%,#e2e8f0_35%,#f8fafc_100%)] p-2 pb-24 text-slate-900 sm:p-3 sm:pb-3">
+      <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-3 sm:gap-4">
+        <header className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm sm:items-center sm:px-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Editor</p>
-            <h1 className="text-lg font-bold">
+            <h1 className="text-base font-bold sm:text-lg">
               {label} Canvas ({width} x {height}px)
             </h1>
             <p className="text-xs text-slate-500 capitalize">{orientation} orientation</p>
@@ -1068,11 +1070,11 @@ function EditorPageContent() {
             </p>
             {exportError && <p className="text-xs text-rose-600">{exportError}</p>}
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
             <button
               type="button"
               onClick={addTextBox}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
+              className="hidden min-h-10 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-100 sm:inline-flex sm:text-sm"
             >
               + Text
             </button>
@@ -1086,27 +1088,27 @@ function EditorPageContent() {
             <button
               type="button"
               onClick={() => imageInputRef.current?.click()}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
+              className="hidden min-h-10 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-100 sm:inline-flex sm:text-sm"
             >
               + Image
             </button>
             <button
               type="button"
               onClick={() => addShapeBox("square")}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100"
+              className="hidden min-h-10 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-100 sm:inline-flex sm:text-sm"
             >
               + Shape
             </button>
             <button
               type="button"
               onClick={addPage}
-              className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-700"
+              className="hidden min-h-10 rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-700 sm:inline-flex sm:text-sm"
             >
               + Add Page
             </button>
             <Link
               href="/setup?pick=1"
-              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium hover:bg-slate-100"
+              className="inline-flex min-h-10 items-center rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium hover:bg-slate-100 sm:text-sm"
             >
               Change Page Size
             </Link>
@@ -1115,7 +1117,7 @@ function EditorPageContent() {
                 type="button"
                 onClick={() => setIsDownloadMenuOpen((prev) => !prev)}
                 disabled={isExporting || !isHydrated}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
               >
                 <svg viewBox="0 0 20 20" aria-hidden="true" className="h-4 w-4 fill-none stroke-current stroke-[1.8]">
                   <path d="M10 2.5v9.5" strokeLinecap="round" />
@@ -1171,7 +1173,7 @@ function EditorPageContent() {
         </header>
 
         {visibleSelectedTextBox ? (
-          <section className="flex h-12 items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white px-3 shadow-sm">
+          <section className="flex min-h-12 items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] shadow-sm sm:text-xs [&_button]:touch-manipulation [&_button]:min-h-8 [&_input]:touch-manipulation [&_select]:min-h-8">
             <p className="mr-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Text</p>
             <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
               Font
@@ -1334,7 +1336,7 @@ function EditorPageContent() {
             </button>
           </section>
         ) : visibleSelectedImageBox ? (
-          <section className="flex h-12 items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white px-3 shadow-sm">
+          <section className="flex min-h-12 items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] shadow-sm sm:text-xs [&_button]:touch-manipulation [&_button]:min-h-8 [&_input]:touch-manipulation [&_select]:min-h-8">
             <p className="mr-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Image</p>
             <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
               W
@@ -1440,7 +1442,7 @@ function EditorPageContent() {
             </button>
           </section>
         ) : visibleSelectedShapeBox ? (
-          <section className="flex h-12 items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white px-3 shadow-sm">
+          <section className="flex min-h-12 items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] shadow-sm sm:text-xs [&_button]:touch-manipulation [&_button]:min-h-8 [&_input]:touch-manipulation [&_select]:min-h-8">
             <p className="mr-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Shape</p>
             <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
               Type
@@ -1463,23 +1465,40 @@ function EditorPageContent() {
                 ))}
               </select>
             </label>
+            <button
+              type="button"
+              onClick={() =>
+                updateSelectedShapeBox({
+                  fillEnabled: visibleSelectedShapeBox.fillEnabled === false,
+                })
+              }
+              className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${
+                visibleSelectedShapeBox.fillEnabled === false
+                  ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  : "border-sky-400 bg-sky-50 text-sky-700"
+              }`}
+            >
+              Fill {visibleSelectedShapeBox.fillEnabled === false ? "Off" : "On"}
+            </button>
             <label className="shrink-0 flex items-center gap-1 text-xs text-slate-600">
               Fill
               <input
                 type="color"
                 value={visibleSelectedShapeBox.fillColor || "#38bdf8"}
                 onChange={(event) => updateSelectedShapeBox({ fillColor: event.target.value })}
+                disabled={visibleSelectedShapeBox.fillEnabled === false}
                 className="h-7 w-8 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
               />
             </label>
             <button
               type="button"
               onClick={() => updateSelectedShapeBox({ gradientEnabled: !visibleSelectedShapeBox.gradientEnabled })}
+              disabled={visibleSelectedShapeBox.fillEnabled === false}
               className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${
                 visibleSelectedShapeBox.gradientEnabled
                   ? "border-sky-400 bg-sky-50 text-sky-700"
                   : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-              }`}
+              } ${visibleSelectedShapeBox.fillEnabled === false ? "cursor-not-allowed opacity-50" : ""}`}
             >
               Gradient {visibleSelectedShapeBox.gradientEnabled ? "On" : "Off"}
             </button>
@@ -1487,22 +1506,24 @@ function EditorPageContent() {
               <button
                 type="button"
                 onClick={() => updateSelectedShapeBox({ gradientDirection: "vertical" })}
+                disabled={visibleSelectedShapeBox.fillEnabled === false}
                 className={`px-2 py-1 text-xs ${
                   (visibleSelectedShapeBox.gradientDirection || "vertical") === "vertical"
                     ? "bg-sky-50 text-sky-700"
                     : "bg-white text-slate-700 hover:bg-slate-50"
-                }`}
+                } ${visibleSelectedShapeBox.fillEnabled === false ? "cursor-not-allowed opacity-50" : ""}`}
               >
                 Vertical
               </button>
               <button
                 type="button"
                 onClick={() => updateSelectedShapeBox({ gradientDirection: "horizontal" })}
+                disabled={visibleSelectedShapeBox.fillEnabled === false}
                 className={`px-2 py-1 text-xs ${
                   (visibleSelectedShapeBox.gradientDirection || "vertical") === "horizontal"
                     ? "bg-sky-50 text-sky-700"
                     : "bg-white text-slate-700 hover:bg-slate-50"
-                }`}
+                } ${visibleSelectedShapeBox.fillEnabled === false ? "cursor-not-allowed opacity-50" : ""}`}
               >
                 Horizontal
               </button>
@@ -1522,6 +1543,7 @@ function EditorPageContent() {
                     next[index] = event.target.value;
                     updateSelectedShapeBox({ gradientColors: next });
                   }}
+                  disabled={visibleSelectedShapeBox.fillEnabled === false}
                   className="h-7 w-8 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
                 />
               </label>
@@ -1603,7 +1625,7 @@ function EditorPageContent() {
             </button>
           </section>
         ) : (
-          <section className="flex h-12 items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white px-3 shadow-sm">
+          <section className="flex min-h-12 items-center gap-2 overflow-x-auto rounded-xl border border-slate-200 bg-white px-3 py-2 text-[11px] shadow-sm sm:text-xs [&_button]:touch-manipulation [&_button]:min-h-8 [&_input]:touch-manipulation [&_select]:min-h-8">
             <p className="mr-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Page</p>
             <label className="ml-1 shrink-0 flex items-center gap-1 text-xs text-slate-600">
               Color
@@ -1785,11 +1807,11 @@ function EditorPageContent() {
           </section>
         )}
 
-        <section className="min-h-[calc(100vh-120px)] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 p-4">
-          <div className="flex h-[calc(100vh-160px)] gap-4">
+        <section className="min-h-[60dvh] overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 p-2 sm:p-4">
+          <div className="flex h-[68dvh] min-h-[420px] flex-col gap-3 lg:h-[calc(100dvh-190px)] lg:flex-row lg:gap-4">
             <div
               ref={canvasViewportRef}
-              className={`flex-1 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-5 ${
+              className={`flex-1 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-2 sm:p-5 ${
                 isPanningCanvas ? "cursor-grabbing" : "cursor-grab"
               }`}
               onMouseDown={(event) => {
@@ -1879,8 +1901,8 @@ function EditorPageContent() {
               </div>
             </div>
 
-            <aside className="w-28 shrink-0 overflow-auto rounded-xl border border-slate-200 bg-white p-2">
-              <div className="flex flex-col items-center gap-3">
+            <aside className="w-full shrink-0 overflow-x-auto overflow-y-hidden rounded-xl border border-slate-200 bg-white p-2 lg:w-28 lg:overflow-x-hidden lg:overflow-y-auto">
+              <div className="flex min-w-max flex-row items-start gap-3 lg:min-w-0 lg:flex-col lg:items-center">
                 {visiblePages.map((page, index) => {
                   const thumbScale = Math.min(THUMBNAIL_MAX_WIDTH / page.width, THUMBNAIL_MAX_HEIGHT / page.height);
                   const thumbWidth = Math.max(18, Math.round(page.width * thumbScale));
@@ -1888,7 +1910,7 @@ function EditorPageContent() {
                   const isActive = page.id === visibleActivePageId;
 
                   return (
-                    <div key={page.id} className="w-full">
+                    <div key={page.id} className="w-24 shrink-0 lg:w-full">
                       <button
                         type="button"
                         draggable
@@ -1981,13 +2003,14 @@ function EditorPageContent() {
                             const previewRotation = clamp(toSafeNumber(shape.rotation ?? 0, 0), -180, 180);
                             const shapeType: CanvasShapeKind =
                               shape.shapeType === "circle" || shape.shapeType === "triangle" ? shape.shapeType : "square";
+                            const shapeFillEnabled = shape.fillEnabled !== false;
                             const fillColor = shape.fillColor || "#38bdf8";
-                            const shapeGradientEnabled = Boolean(shape.gradientEnabled);
+                            const shapeGradientEnabled = shapeFillEnabled && Boolean(shape.gradientEnabled);
                             const shapeGradientDirection = shape.gradientDirection === "horizontal" ? "horizontal" : "vertical";
                             const [shapeGradientStart, shapeGradientMiddle, shapeGradientEnd] =
                               shape.gradientColors || DEFAULT_SHAPE_GRADIENT_COLORS;
                             const gradientId = `thumb-shape-grad-${shape.id}`;
-                            const fillValue = shapeGradientEnabled ? `url(#${gradientId})` : fillColor;
+                            const fillValue = shapeFillEnabled ? (shapeGradientEnabled ? `url(#${gradientId})` : fillColor) : "none";
                             const strokeColor = shape.strokeColor || "#0f172a";
                             const strokeWidth = Math.max(0, toSafeNumber(shape.strokeWidth ?? 2, 2));
                             // Use original shape dimensions so thumbnail stroke scales down with thumbnail size.
@@ -2111,7 +2134,7 @@ function EditorPageContent() {
                           type="button"
                           onClick={() => duplicatePage(page.id)}
                           aria-label={`Duplicate page ${index + 1}`}
-                          className="rounded border border-slate-200 px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100"
+                          className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-600 hover:bg-slate-100"
                           title="Duplicate page"
                         >
                           Copy
@@ -2121,7 +2144,7 @@ function EditorPageContent() {
                           onClick={() => deletePage(page.id)}
                           disabled={visiblePages.length <= 1}
                           aria-label={`Delete page ${index + 1}`}
-                          className="rounded border border-slate-200 px-2 py-0.5 text-[10px] text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="rounded border border-slate-200 px-2 py-1 text-[10px] text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
                           title={visiblePages.length <= 1 ? "At least one page is required" : "Delete page"}
                         >
                           Del
@@ -2134,6 +2157,48 @@ function EditorPageContent() {
             </aside>
           </div>
         </section>
+      </div>
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 px-2 pt-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] shadow-[0_-8px_20px_rgba(15,23,42,0.08)] backdrop-blur sm:hidden">
+        <div className="mx-auto grid w-full max-w-md grid-cols-5 gap-2">
+          <button
+            type="button"
+            onClick={addTextBox}
+            className="min-h-10 rounded-lg border border-slate-300 bg-white px-2 text-[11px] font-semibold text-slate-700 active:bg-slate-100"
+          >
+            Text
+          </button>
+          <button
+            type="button"
+            onClick={() => imageInputRef.current?.click()}
+            className="min-h-10 rounded-lg border border-slate-300 bg-white px-2 text-[11px] font-semibold text-slate-700 active:bg-slate-100"
+          >
+            Image
+          </button>
+          <button
+            type="button"
+            onClick={() => addShapeBox("square")}
+            className="min-h-10 rounded-lg border border-slate-300 bg-white px-2 text-[11px] font-semibold text-slate-700 active:bg-slate-100"
+          >
+            Shape
+          </button>
+          <button
+            type="button"
+            onClick={addPage}
+            className="min-h-10 rounded-lg bg-slate-900 px-2 text-[11px] font-semibold text-white active:bg-slate-700"
+          >
+            Page
+          </button>
+          <button
+            type="button"
+            onClick={async () => {
+              await handleDownloadImage("png");
+            }}
+            disabled={isExporting || !isHydrated}
+            className="min-h-10 rounded-lg border border-slate-300 bg-slate-50 px-2 text-[11px] font-semibold text-slate-700 active:bg-slate-100 disabled:opacity-50"
+          >
+            Export
+          </button>
+        </div>
       </div>
     </main>
   );

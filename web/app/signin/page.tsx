@@ -58,10 +58,10 @@ export default function SignInPage() {
   };
 
   return (
-    <main className="grid min-h-screen place-items-center bg-[radial-gradient(circle_at_top,#e0f2fe_0%,#eef2ff_42%,#f8fafc_100%)] px-4 py-10 text-slate-900">
-      <section className="w-full max-w-md rounded-3xl border border-slate-200 bg-white/95 p-8 shadow-xl shadow-slate-300/40">
+    <main className="grid min-h-screen place-items-center bg-[radial-gradient(circle_at_top,#e0f2fe_0%,#eef2ff_42%,#f8fafc_100%)] px-3 py-6 text-slate-900 sm:px-4 sm:py-10">
+      <section className="w-full max-w-md rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-xl shadow-slate-300/40 sm:p-8">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Account</p>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight">Sign in</h1>
+        <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">Sign in</h1>
 
         <form className="mt-6 space-y-3" onSubmit={handleSignIn}>
           <input

@@ -6,7 +6,6 @@ from app.models.user import User
 from app.schemas.auth import UserLogin, UserRegister, UserResponse, TokenResponse, GoogleAuthRequest
 from app.core.security import verify_password, get_password_hash, create_access_token
 from app.core.config import settings
-from app.core.dependencies import get_current_user
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 from datetime import datetime
@@ -120,39 +119,6 @@ async def register(register_data: UserRegister, db: AsyncSession = Depends(get_d
             message="Registration successful",
             token=token,
             user=user_response
-        )
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}" if settings.DEBUG else "Internal server error"
-        )
-
-@router.get("/me", response_model=UserResponse)
-async def get_current_user_info(
-    db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(get_current_user)
-):
-    """Get current user information."""
-    try:
-        result = await db.execute(select(User).where(User.id == current_user["user_id"]))
-        user = result.scalar_one_or_none()
-        
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found"
-            )
-        
-        return UserResponse(
-            id=user.id,
-            email=user.email,
-            name=user.name,
-            created_at=user.created_at,
-            updated_at=user.updated_at,
-            last_login=user.last_login
         )
     
     except HTTPException:

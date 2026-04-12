@@ -39,6 +39,7 @@ export type CanvasShapeBox = {
   width: number;
   height: number;
   shapeType: CanvasShapeKind;
+  fillEnabled?: boolean;
   fillColor?: string;
   gradientEnabled?: boolean;
   gradientDirection?: "vertical" | "horizontal";
@@ -616,12 +617,13 @@ export default function DesignCanvas({
         const shapeHeight = Math.max(10, toFiniteNumber(shape.height, DEFAULT_SHAPE_BOX_HEIGHT));
         const shapeRotation = normalizeAngle(shape.rotation ?? 0);
         const shapeType: CanvasShapeKind = shape.shapeType === "circle" || shape.shapeType === "triangle" ? shape.shapeType : "square";
+        const shapeFillEnabled = shape.fillEnabled !== false;
         const fillColor = sanitizeHexColor(shape.fillColor, DEFAULT_SHAPE_FILL);
-        const shapeGradientEnabled = Boolean(shape.gradientEnabled);
+        const shapeGradientEnabled = shapeFillEnabled && Boolean(shape.gradientEnabled);
         const shapeGradientDirection = shape.gradientDirection === "horizontal" ? "horizontal" : "vertical";
         const [shapeGradientStart, shapeGradientMiddle, shapeGradientEnd] = shape.gradientColors || DEFAULT_SHAPE_GRADIENT_COLORS;
         const gradientId = `shape-grad-${shape.id}`;
-        const shapeFillValue = shapeGradientEnabled ? `url(#${gradientId})` : fillColor;
+        const shapeFillValue = shapeFillEnabled ? (shapeGradientEnabled ? `url(#${gradientId})` : fillColor) : "none";
         const strokeColor = sanitizeHexColor(shape.strokeColor, DEFAULT_SHAPE_STROKE);
         const strokeWidth = Math.max(0, toFiniteNumber(shape.strokeWidth ?? 2, 2));
         const normalizedStrokeWidth = Math.max(0, (strokeWidth * 100) / Math.max(shapeWidth, shapeHeight));

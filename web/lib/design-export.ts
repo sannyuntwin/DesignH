@@ -178,8 +178,9 @@ async function renderPageToCanvas(page: ExportDesignPage) {
       const shapeWidth = Math.max(1, normalizeNumber(shapeBox.width, 180));
       const shapeHeight = Math.max(1, normalizeNumber(shapeBox.height, 180));
       const shapeRotation = normalizeNumber(shapeBox.rotation ?? 0, 0);
+      const shapeFillEnabled = shapeBox.fillEnabled !== false;
       const shapeFill = sanitizeHexColor(shapeBox.fillColor, "#38bdf8");
-      const shapeGradientEnabled = Boolean(shapeBox.gradientEnabled);
+      const shapeGradientEnabled = shapeFillEnabled && Boolean(shapeBox.gradientEnabled);
       const shapeGradientDirection = shapeBox.gradientDirection === "horizontal" ? "horizontal" : "vertical";
       const [shapeGradientStart, shapeGradientMiddle, shapeGradientEnd] = shapeBox.gradientColors || ["#38bdf8", "#22d3ee", "#818cf8"];
       const shapeStroke = sanitizeHexColor(shapeBox.strokeColor, "#0f172a");
@@ -213,10 +214,11 @@ async function renderPageToCanvas(page: ExportDesignPage) {
         shapeGradient.addColorStop(0.5, sanitizeHexColor(shapeGradientMiddle, "#22d3ee"));
         shapeGradient.addColorStop(1, sanitizeHexColor(shapeGradientEnd, "#818cf8"));
         ctx.fillStyle = shapeGradient;
-      } else {
+        ctx.fill();
+      } else if (shapeFillEnabled) {
         ctx.fillStyle = shapeFill;
+        ctx.fill();
       }
-      ctx.fill();
 
       if (normalizedShapeStrokeWidth > 0) {
         ctx.lineWidth = normalizedShapeStrokeWidth;

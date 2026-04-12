@@ -117,8 +117,8 @@ function SetupPageContent() {
   };
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(120deg,#f8fafc_0%,#eef2ff_55%,#e0f2fe_100%)] px-4 py-10 text-slate-900">
-      <div className="mx-auto w-full max-w-5xl rounded-3xl border border-slate-200 bg-white/95 p-6 shadow-xl shadow-slate-300/40 md:p-10">
+    <main className="min-h-screen bg-[linear-gradient(120deg,#f8fafc_0%,#eef2ff_55%,#e0f2fe_100%)] px-3 py-6 text-slate-900 sm:px-4 sm:py-10">
+      <div className="mx-auto w-full max-w-5xl rounded-3xl border border-slate-200 bg-white/95 p-4 shadow-xl shadow-slate-300/40 sm:p-6 md:p-10">
         <div className="mb-8">
           <div className="mb-4 flex justify-end">
             <button
@@ -141,11 +141,11 @@ function SetupPageContent() {
 
         <section className="mb-6">
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-slate-500">Orientation</h2>
-          <div className="inline-flex rounded-xl border border-slate-300 bg-slate-50 p-1">
+          <div className="inline-flex w-full max-w-sm rounded-xl border border-slate-300 bg-slate-50 p-1">
             <button
               type="button"
               onClick={() => setOrientation("portrait")}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+              className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition ${
                 orientation === "portrait" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
               }`}
             >
@@ -154,7 +154,7 @@ function SetupPageContent() {
             <button
               type="button"
               onClick={() => setOrientation("landscape")}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+              className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition ${
                 orientation === "landscape" ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
               }`}
             >
@@ -234,7 +234,7 @@ function SetupPageContent() {
             type="button"
             onClick={goToEditor}
             disabled={!selectedSize.isValid}
-            className="rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full rounded-xl bg-slate-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
           >
             Start Designing
           </button>
