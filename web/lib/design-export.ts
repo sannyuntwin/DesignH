@@ -57,28 +57,23 @@ function splitTokenByWidth(ctx: CanvasRenderingContext2D, token: string, maxWidt
   return parts;
 }
 
-function getCoverDrawRect(sourceWidth: number, sourceHeight: number, targetWidth: number, targetHeight: number) {
-  if (sourceWidth <= 0 || sourceHeight <= 0) {
-    return {
-      x: -targetWidth / 2,
-      y: -targetHeight / 2,
-      width: targetWidth,
-      height: targetHeight,
-    };
+function getCoverSourceRect(sourceWidth: number, sourceHeight: number, targetWidth: number, targetHeight: number) {
+  if (sourceWidth <= 0 || sourceHeight <= 0 || targetWidth <= 0 || targetHeight <= 0) {
+    return { sx: 0, sy: 0, sw: Math.max(1, sourceWidth), sh: Math.max(1, sourceHeight) };
   }
 
-  const scale = Math.max(targetWidth / sourceWidth, targetHeight / sourceHeight);
-  const width = sourceWidth * scale;
-  const height = sourceHeight * scale;
-  const bleed = 1;
+  const sourceAspect = sourceWidth / sourceHeight;
+  const targetAspect = targetWidth / targetHeight;
 
-  return {
-    // Slight overscan avoids 1px seams from canvas anti-aliasing at clip edges.
-    x: -width / 2 - bleed,
-    y: -height / 2 - bleed,
-    width: width + bleed * 2,
-    height: height + bleed * 2,
-  };
+  if (sourceAspect > targetAspect) {
+    const sw = sourceHeight * targetAspect;
+    const sx = (sourceWidth - sw) / 2;
+    return { sx, sy: 0, sw, sh: sourceHeight };
+  }
+
+  const sh = sourceWidth / targetAspect;
+  const sy = (sourceHeight - sh) / 2;
+  return { sx: 0, sy, sw: sourceWidth, sh };
 }
 
 function roundedRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
@@ -225,10 +220,11 @@ async function renderPageToCanvas(page: ExportDesignPage) {
       const imageBox = item.box;
       if (!imageBox.src) continue;
 
-      const imageX = normalizeNumber(imageBox.x, 0);
-      const imageY = normalizeNumber(imageBox.y, 0);
-      const imageWidth = Math.max(1, normalizeNumber(imageBox.width, 280));
-      const imageHeight = Math.max(1, normalizeNumber(imageBox.height, 180));
+      // Snap bounds to device pixels to avoid thin seam artifacts at clip edges.
+      const imageX = Math.round(normalizeNumber(imageBox.x, 0));
+      const imageY = Math.round(normalizeNumber(imageBox.y, 0));
+      const imageWidth = Math.max(1, Math.round(normalizeNumber(imageBox.width, 280)));
+      const imageHeight = Math.max(1, Math.round(normalizeNumber(imageBox.height, 180)));
       const imageOpacity = Math.max(0, Math.min(1, normalizeNumber(imageBox.opacity ?? 1, 1)));
       const imageRotation = normalizeNumber(imageBox.rotation ?? 0, 0);
 
@@ -240,10 +236,20 @@ async function renderPageToCanvas(page: ExportDesignPage) {
         ctx.rotate((imageRotation * Math.PI) / 180);
 
         // Match the editor's object-cover rendering and rounded image corners.
-        const drawRect = getCoverDrawRect(image.naturalWidth || image.width, image.naturalHeight || image.height, imageWidth, imageHeight);
+        const sourceRect = getCoverSourceRect(image.naturalWidth || image.width, image.naturalHeight || image.height, imageWidth, imageHeight);
         roundedRectPath(ctx, -imageWidth / 2, -imageHeight / 2, imageWidth, imageHeight, 4);
         ctx.clip();
-        ctx.drawImage(image, drawRect.x, drawRect.y, drawRect.width, drawRect.height);
+        ctx.drawImage(
+          image,
+          sourceRect.sx,
+          sourceRect.sy,
+          sourceRect.sw,
+          sourceRect.sh,
+          -imageWidth / 2,
+          -imageHeight / 2,
+          imageWidth,
+          imageHeight,
+        );
         ctx.restore();
       } catch {
         // Skip broken image sources during export instead of failing the whole file.
