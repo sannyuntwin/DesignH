@@ -536,8 +536,8 @@ export default function DesignCanvas({
           <div
             key={image.id}
             data-canvas-element="true"
-            className={`absolute overflow-hidden rounded border ${
-              isSelected ? "border-sky-500/90 shadow-[0_0_0_1px_rgba(14,165,233,0.35)]" : "border-transparent"
+            className={`absolute overflow-hidden rounded ${
+              isSelected ? "outline outline-1 outline-sky-500/90 shadow-[0_0_0_1px_rgba(14,165,233,0.35)]" : ""
             } cursor-move select-none`}
             style={{
               left: imageX,
@@ -633,8 +633,8 @@ export default function DesignCanvas({
           <div
             key={shape.id}
             data-canvas-element="true"
-            className={`absolute rounded border ${
-              isSelected ? "border-sky-500/90 shadow-[0_0_0_1px_rgba(14,165,233,0.35)]" : "border-transparent"
+            className={`absolute rounded ${
+              isSelected ? "outline outline-1 outline-sky-500/90 shadow-[0_0_0_1px_rgba(14,165,233,0.35)]" : ""
             } cursor-move select-none`}
             style={{
               left: shapeX,
@@ -800,8 +800,8 @@ export default function DesignCanvas({
           <div
             key={box.id}
             data-canvas-element="true"
-            className={`absolute rounded border ${
-              isSelected ? "border-sky-500/90 shadow-[0_0_0_1px_rgba(14,165,233,0.35)]" : "border-transparent"
+            className={`absolute rounded ${
+              isSelected ? "outline outline-1 outline-sky-500/90 shadow-[0_0_0_1px_rgba(14,165,233,0.35)]" : ""
             } ${isEditing ? "cursor-text" : "cursor-move select-none"}`}
             style={{
               left: boxX,

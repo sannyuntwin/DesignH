@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import auth
+from app.api import designs
 from app import models  # ensure all SQLAlchemy models are registered
 from app.core.config import settings
 from app.models.base import initialize_schema
@@ -22,6 +23,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
+app.include_router(designs.router, prefix="/api/designs", tags=["designs"])
 
 
 @app.on_event("startup")

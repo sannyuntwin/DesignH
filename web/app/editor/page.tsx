@@ -7,6 +7,7 @@ import DesignCanvas, { CanvasImageBox, CanvasShapeBox, CanvasShapeKind, CanvasTe
 import { readAuthSession } from "@/lib/auth-session";
 import { DEFAULT_PAGE, Orientation, PAGE_PREF_KEY, SavedPagePreference, parseDimension } from "@/lib/page-sizes";
 import { exportDesignAsImage, exportDesignAsPdf } from "@/lib/design-export";
+import { createDesign, listDesigns, updateDesign } from "@/lib/designs-api";
 
 type CanvasPage = {
   id: string;
@@ -30,6 +31,7 @@ type CanvasPage = {
 const THUMBNAIL_MAX_WIDTH = 76;
 const THUMBNAIL_MAX_HEIGHT = 108;
 const EDITOR_DOC_KEY_PREFIX = "design-editor-doc-v1";
+const CLOUD_DOC_NAME_PREFIX = "design-editor-cloud-v1";
 const DEFAULT_GRADIENT_COLORS = ["#f8fafc", "#e2e8f0", "#cbd5e1"] as const;
 const DEFAULT_BORDER_GRADIENT_COLORS = ["#0f172a", "#475569", "#0f172a"] as const;
 const DEFAULT_SHAPE_GRADIENT_COLORS = ["#38bdf8", "#22d3ee", "#818cf8"] as const;
@@ -78,6 +80,10 @@ function toSafeNumber(value: unknown, fallback: number) {
 
 function getDocStorageKey(preset: string, width: number, height: number) {
   return `${EDITOR_DOC_KEY_PREFIX}:${preset}:${width}x${height}`;
+}
+
+function getCloudDocName(preset: string, width: number, height: number) {
+  return `${CLOUD_DOC_NAME_PREFIX}:${preset}:${width}x${height}`;
 }
 
 function sanitizeHexColor(value: unknown, fallback: string) {
@@ -335,6 +341,28 @@ function createFallbackEditorDoc(width: number, height: number): StoredEditorDoc
   };
 }
 
+function sanitizeStoredEditorDoc(input: Partial<StoredEditorDoc>, width: number, height: number, fallback: StoredEditorDoc): StoredEditorDoc {
+  const sanitizedPages = Array.isArray(input.pages) ? input.pages.map((page) => sanitizePage(page, width, height)) : [];
+  const pages = sanitizedPages.length > 0 ? sanitizedPages : fallback.pages;
+  const activePageId = typeof input.activePageId === "string" && pages.some((page) => page.id === input.activePageId) ? input.activePageId : pages[0].id;
+  const selectedTextId =
+    typeof input.selectedTextId === "string" && pages.some((page) => page.textBoxes.some((box) => box.id === input.selectedTextId))
+      ? input.selectedTextId
+      : null;
+  const selectedImageId =
+    typeof input.selectedImageId === "string" && pages.some((page) => page.imageBoxes.some((box) => box.id === input.selectedImageId))
+      ? input.selectedImageId
+      : null;
+  const selectedShapeId =
+    typeof input.selectedShapeId === "string" && pages.some((page) => page.shapeBoxes.some((box) => box.id === input.selectedShapeId))
+      ? input.selectedShapeId
+      : null;
+  const customFonts = mergeFontOptions(Array.isArray(input.customFonts) ? input.customFonts : []);
+  const uploadedFonts = sanitizeUploadedFonts(input.uploadedFonts);
+
+  return { pages, activePageId, selectedTextId, selectedImageId, selectedShapeId, customFonts, uploadedFonts };
+}
+
 function loadInitialEditorDoc(preset: string, width: number, height: number): StoredEditorDoc {
   const fallback = createFallbackEditorDoc(width, height);
 
@@ -349,31 +377,7 @@ function loadInitialEditorDoc(preset: string, width: number, height: number): St
     }
 
     const parsed = JSON.parse(raw) as Partial<StoredEditorDoc>;
-    const sanitizedPages = Array.isArray(parsed.pages)
-      ? parsed.pages.map((page) => sanitizePage(page, width, height))
-      : [];
-
-    const pages = sanitizedPages.length > 0 ? sanitizedPages : fallback.pages;
-    const activePageId =
-      typeof parsed.activePageId === "string" && pages.some((p) => p.id === parsed.activePageId)
-        ? parsed.activePageId
-        : pages[0].id;
-    const selectedTextId =
-      typeof parsed.selectedTextId === "string" && pages.some((p) => p.textBoxes.some((b) => b.id === parsed.selectedTextId))
-        ? parsed.selectedTextId
-        : null;
-    const selectedImageId =
-      typeof parsed.selectedImageId === "string" && pages.some((p) => p.imageBoxes.some((b) => b.id === parsed.selectedImageId))
-        ? parsed.selectedImageId
-        : null;
-    const selectedShapeId =
-      typeof parsed.selectedShapeId === "string" && pages.some((p) => p.shapeBoxes.some((b) => b.id === parsed.selectedShapeId))
-        ? parsed.selectedShapeId
-        : null;
-    const customFonts = mergeFontOptions(Array.isArray(parsed.customFonts) ? parsed.customFonts : []);
-    const uploadedFonts = sanitizeUploadedFonts(parsed.uploadedFonts);
-
-    return { pages, activePageId, selectedTextId, selectedImageId, selectedShapeId, customFonts, uploadedFonts };
+    return sanitizeStoredEditorDoc(parsed, width, height, fallback);
   } catch {
     return fallback;
   }
@@ -402,6 +406,9 @@ function EditorPageContent() {
   const [fontInputValue, setFontInputValue] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [cloudSyncError, setCloudSyncError] = useState<string | null>(null);
+  const [cloudDesignId, setCloudDesignId] = useState<string | null>(null);
+  const [isCloudSyncReady, setIsCloudSyncReady] = useState(false);
   const [isDownloadMenuOpen, setIsDownloadMenuOpen] = useState(false);
   const [zoomPercent, setZoomPercent] = useState(100);
   const [isPanningCanvas, setIsPanningCanvas] = useState(false);
@@ -419,6 +426,19 @@ function EditorPageContent() {
     () => () => {},
     () => true,
     () => false,
+  );
+
+  const currentDoc = useMemo<StoredEditorDoc>(
+    () => ({
+      pages,
+      activePageId,
+      selectedTextId,
+      selectedImageId,
+      selectedShapeId,
+      customFonts,
+      uploadedFonts,
+    }),
+    [activePageId, customFonts, pages, selectedImageId, selectedShapeId, selectedTextId, uploadedFonts],
   );
 
   const activePage = useMemo<CanvasPage>(() => {
@@ -971,6 +991,93 @@ function EditorPageContent() {
   }, []);
 
   useEffect(() => {
+    let isCancelled = false;
+    const session = readAuthSession();
+
+    if (!isHydrated || !session?.token) {
+      return;
+    }
+
+    setIsCloudSyncReady(false);
+    setCloudDesignId(null);
+
+    const cloudDocName = getCloudDocName(preset, width, height);
+    const seedDoc = loadInitialEditorDoc(preset, width, height);
+
+    const loadCloudDoc = async () => {
+      try {
+        const listed = await listDesigns(session.token, { search: cloudDocName, limit: 100 });
+        let cloudDesign = listed.designs.find((design) => design.name === cloudDocName) || null;
+
+        if (!cloudDesign) {
+          cloudDesign = await createDesign(session.token, {
+            name: cloudDocName,
+            description: "Auto-synced design editor document",
+            canvas_data: seedDoc as Record<string, unknown>,
+            width,
+            height,
+          });
+        }
+
+        if (isCancelled) return;
+
+        setCloudDesignId(cloudDesign.id);
+        setCloudSyncError(null);
+
+        if (cloudDesign.canvas_data && typeof cloudDesign.canvas_data === "object") {
+          const syncedDoc = sanitizeStoredEditorDoc(cloudDesign.canvas_data as Partial<StoredEditorDoc>, width, height, fallbackDoc);
+          setPages(syncedDoc.pages);
+          setActivePageId(syncedDoc.activePageId);
+          setSelectedTextId(syncedDoc.selectedTextId);
+          setSelectedImageId(syncedDoc.selectedImageId);
+          setSelectedShapeId(syncedDoc.selectedShapeId);
+          setCustomFonts(syncedDoc.customFonts);
+          setUploadedFonts(syncedDoc.uploadedFonts);
+        }
+      } catch (error) {
+        if (isCancelled) return;
+        setCloudSyncError(error instanceof Error ? `Cloud sync is unavailable: ${error.message}` : "Cloud sync is unavailable right now.");
+      } finally {
+        if (!isCancelled) {
+          setIsCloudSyncReady(true);
+        }
+      }
+    };
+
+    loadCloudDoc();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [fallbackDoc, height, isHydrated, preset, width]);
+
+  useEffect(() => {
+    const session = readAuthSession();
+    if (!isHydrated || !isCloudSyncReady || !cloudDesignId || !session?.token) {
+      return;
+    }
+
+    const cloudDocName = getCloudDocName(preset, width, height);
+    const timer = window.setTimeout(async () => {
+      try {
+        await updateDesign(session.token, cloudDesignId, {
+          name: cloudDocName,
+          canvas_data: currentDoc as Record<string, unknown>,
+          width,
+          height,
+        });
+        setCloudSyncError(null);
+      } catch (error) {
+        setCloudSyncError(error instanceof Error ? `Cloud sync failed: ${error.message}` : "Cloud sync failed.");
+      }
+    }, 1000);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [cloudDesignId, currentDoc, height, isCloudSyncReady, isHydrated, preset, width]);
+
+  useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
       const viewport = canvasViewportRef.current;
       const panState = panStateRef.current;
@@ -1042,18 +1149,8 @@ function EditorPageContent() {
   }, [uploadedFonts]);
 
   useEffect(() => {
-    const doc: StoredEditorDoc = {
-      pages,
-      activePageId,
-      selectedTextId,
-      selectedImageId,
-      selectedShapeId,
-      customFonts,
-      uploadedFonts,
-    };
-
-    window.localStorage.setItem(getDocStorageKey(preset, width, height), JSON.stringify(doc));
-  }, [activePageId, customFonts, height, pages, preset, selectedImageId, selectedShapeId, selectedTextId, uploadedFonts, width]);
+    window.localStorage.setItem(getDocStorageKey(preset, width, height), JSON.stringify(currentDoc));
+  }, [currentDoc, height, preset, width]);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(140deg,#f1f5f9_0%,#e2e8f0_35%,#f8fafc_100%)] p-2 pb-24 text-slate-900 sm:p-3 sm:pb-3">
@@ -1069,6 +1166,8 @@ function EditorPageContent() {
               {visiblePages.length} page{visiblePages.length > 1 ? "s" : ""}
             </p>
             {exportError && <p className="text-xs text-rose-600">{exportError}</p>}
+            {cloudSyncError && <p className="text-xs text-amber-700">{cloudSyncError}</p>}
+            {!cloudSyncError && cloudDesignId && <p className="text-xs text-emerald-700">Cloud sync is active.</p>}
           </div>
           <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
             <button

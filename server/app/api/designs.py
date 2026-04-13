@@ -164,7 +164,10 @@ async def get_design(
         result = await db.execute(
             select(Design, User.name.label("user_name"))
             .join(User, Design.user_id == User.id, isouter=True)
-            .where(Design.id == design_id)
+            .where(
+                Design.id == design_id,
+                Design.user_id == current_user["user_id"]
+            )
         )
         design_row = result.first()
         
