@@ -66,13 +66,13 @@ function getCoverSourceRect(sourceWidth: number, sourceHeight: number, targetWid
   const targetAspect = targetWidth / targetHeight;
 
   if (sourceAspect > targetAspect) {
-    const sw = sourceHeight * targetAspect;
-    const sx = (sourceWidth - sw) / 2;
+    const sw = Math.max(1, Math.round(sourceHeight * targetAspect));
+    const sx = Math.max(0, Math.floor((sourceWidth - sw) / 2));
     return { sx, sy: 0, sw, sh: sourceHeight };
   }
 
-  const sh = sourceWidth / targetAspect;
-  const sy = (sourceHeight - sh) / 2;
+  const sh = Math.max(1, Math.round(sourceWidth / targetAspect));
+  const sy = Math.max(0, Math.floor((sourceHeight - sh) / 2));
   return { sx: 0, sy, sw: sourceWidth, sh };
 }
 
@@ -220,11 +220,10 @@ async function renderPageToCanvas(page: ExportDesignPage) {
       const imageBox = item.box;
       if (!imageBox.src) continue;
 
-      // Snap bounds to device pixels to avoid thin seam artifacts at clip edges.
-      const imageX = Math.round(normalizeNumber(imageBox.x, 0));
-      const imageY = Math.round(normalizeNumber(imageBox.y, 0));
-      const imageWidth = Math.max(1, Math.round(normalizeNumber(imageBox.width, 280)));
-      const imageHeight = Math.max(1, Math.round(normalizeNumber(imageBox.height, 180)));
+      const imageX = normalizeNumber(imageBox.x, 0);
+      const imageY = normalizeNumber(imageBox.y, 0);
+      const imageWidth = Math.max(1, normalizeNumber(imageBox.width, 280));
+      const imageHeight = Math.max(1, normalizeNumber(imageBox.height, 180));
       const imageOpacity = Math.max(0, Math.min(1, normalizeNumber(imageBox.opacity ?? 1, 1)));
       const imageRotation = normalizeNumber(imageBox.rotation ?? 0, 0);
 
@@ -237,6 +236,7 @@ async function renderPageToCanvas(page: ExportDesignPage) {
 
         // Match the editor's object-cover rendering and rounded image corners.
         const sourceRect = getCoverSourceRect(image.naturalWidth || image.width, image.naturalHeight || image.height, imageWidth, imageHeight);
+        const destinationBleed = 0.75;
         roundedRectPath(ctx, -imageWidth / 2, -imageHeight / 2, imageWidth, imageHeight, 4);
         ctx.clip();
         ctx.drawImage(
@@ -245,10 +245,10 @@ async function renderPageToCanvas(page: ExportDesignPage) {
           sourceRect.sy,
           sourceRect.sw,
           sourceRect.sh,
-          -imageWidth / 2,
-          -imageHeight / 2,
-          imageWidth,
-          imageHeight,
+          -imageWidth / 2 - destinationBleed,
+          -imageHeight / 2 - destinationBleed,
+          imageWidth + destinationBleed * 2,
+          imageHeight + destinationBleed * 2,
         );
         ctx.restore();
       } catch {
