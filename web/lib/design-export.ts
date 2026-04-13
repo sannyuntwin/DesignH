@@ -274,6 +274,7 @@ async function renderPageToCanvas(page: ExportDesignPage) {
       const normalizedShapeStrokeWidth = Math.max(0, (shapeStrokeWidth * 100) / Math.max(shapeWidth, shapeHeight));
       const shapeType: CanvasShapeKind =
         shapeBox.shapeType === "circle" || shapeBox.shapeType === "triangle" ? shapeBox.shapeType : "square";
+      const squareBleed = 0.75;
 
       ctx.save();
       ctx.translate(shapeX + shapeWidth / 2, shapeY + shapeHeight / 2);
@@ -288,7 +289,13 @@ async function renderPageToCanvas(page: ExportDesignPage) {
         ctx.lineTo(-shapeWidth / 2, shapeHeight / 2);
         ctx.closePath();
       } else {
-        ctx.rect(-shapeWidth / 2, -shapeHeight / 2, shapeWidth, shapeHeight);
+        // Small bleed prevents 1px right/bottom seams from subpixel rasterization.
+        ctx.rect(
+          -shapeWidth / 2 - squareBleed,
+          -shapeHeight / 2 - squareBleed,
+          shapeWidth + squareBleed * 2,
+          shapeHeight + squareBleed * 2,
+        );
       }
 
       if (shapeGradientEnabled) {
