@@ -33,28 +33,101 @@ function escapeFontFamily(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+function splitTokenByWidth(ctx: CanvasRenderingContext2D, token: string, maxWidth: number) {
+  if (!token) return [""];
+  if (ctx.measureText(token).width <= maxWidth) return [token];
+
+  const parts: string[] = [];
+  let current = "";
+
+  for (const char of token) {
+    const candidate = `${current}${char}`;
+    if (current && ctx.measureText(candidate).width > maxWidth) {
+      parts.push(current);
+      current = char;
+    } else {
+      current = candidate;
+    }
+  }
+
+  if (current) {
+    parts.push(current);
+  }
+
+  return parts;
+}
+
+function getCoverDrawRect(sourceWidth: number, sourceHeight: number, targetWidth: number, targetHeight: number) {
+  if (sourceWidth <= 0 || sourceHeight <= 0) {
+    return {
+      x: -targetWidth / 2,
+      y: -targetHeight / 2,
+      width: targetWidth,
+      height: targetHeight,
+    };
+  }
+
+  const scale = Math.max(targetWidth / sourceWidth, targetHeight / sourceHeight);
+  const width = sourceWidth * scale;
+  const height = sourceHeight * scale;
+
+  return {
+    x: -width / 2,
+    y: -height / 2,
+    width,
+    height,
+  };
+}
+
+function roundedRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
+  const safeRadius = Math.max(0, Math.min(radius, width / 2, height / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + safeRadius, y);
+  ctx.lineTo(x + width - safeRadius, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
+  ctx.lineTo(x + width, y + height - safeRadius);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
+  ctx.lineTo(x + safeRadius, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
+  ctx.lineTo(x, y + safeRadius);
+  ctx.quadraticCurveTo(x, y, x + safeRadius, y);
+  ctx.closePath();
+}
+
 function wrapTextLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
+  if (maxWidth <= 0) return [""];
+
   const lines: string[] = [];
   const paragraphs = (text || "").split(/\r?\n/);
 
-  for (const paragraph of paragraphs) {
-    if (!paragraph.trim()) {
+  for (const rawParagraph of paragraphs) {
+    const paragraph = rawParagraph.replace(/\t/g, "    ");
+    if (paragraph.length === 0) {
       lines.push("");
       continue;
     }
 
-    const words = paragraph.split(/\s+/);
+    const tokens = paragraph.match(/\s+|\S+/g) || [paragraph];
     let currentLine = "";
 
-    for (const word of words) {
-      const candidate = currentLine ? `${currentLine} ${word}` : word;
+    for (const token of tokens) {
+      const candidate = `${currentLine}${token}`;
       const fits = ctx.measureText(candidate).width <= maxWidth;
 
       if (fits || !currentLine) {
         currentLine = candidate;
+        continue;
+      }
+
+      // Start a new line at token boundaries first to preserve spaces/tab alignment.
+      lines.push(currentLine);
+
+      if (ctx.measureText(token).width <= maxWidth) {
+        currentLine = token;
       } else {
-        lines.push(currentLine);
-        currentLine = word;
+        const tokenParts = splitTokenByWidth(ctx, token, maxWidth);
+        lines.push(...tokenParts.slice(0, -1));
+        currentLine = tokenParts[tokenParts.length - 1] || "";
       }
     }
 
@@ -163,7 +236,12 @@ async function renderPageToCanvas(page: ExportDesignPage) {
         ctx.globalAlpha = imageOpacity;
         ctx.translate(imageX + imageWidth / 2, imageY + imageHeight / 2);
         ctx.rotate((imageRotation * Math.PI) / 180);
-        ctx.drawImage(image, -imageWidth / 2, -imageHeight / 2, imageWidth, imageHeight);
+
+        // Match the editor's object-cover rendering and rounded image corners.
+        const drawRect = getCoverDrawRect(image.naturalWidth || image.width, image.naturalHeight || image.height, imageWidth, imageHeight);
+        roundedRectPath(ctx, -imageWidth / 2, -imageHeight / 2, imageWidth, imageHeight, 4);
+        ctx.clip();
+        ctx.drawImage(image, drawRect.x, drawRect.y, drawRect.width, drawRect.height);
         ctx.restore();
       } catch {
         // Skip broken image sources during export instead of failing the whole file.
