@@ -70,12 +70,14 @@ function getCoverDrawRect(sourceWidth: number, sourceHeight: number, targetWidth
   const scale = Math.max(targetWidth / sourceWidth, targetHeight / sourceHeight);
   const width = sourceWidth * scale;
   const height = sourceHeight * scale;
+  const bleed = 1;
 
   return {
-    x: -width / 2,
-    y: -height / 2,
-    width,
-    height,
+    // Slight overscan avoids 1px seams from canvas anti-aliasing at clip edges.
+    x: -width / 2 - bleed,
+    y: -height / 2 - bleed,
+    width: width + bleed * 2,
+    height: height + bleed * 2,
   };
 }
 
