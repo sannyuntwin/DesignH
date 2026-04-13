@@ -275,6 +275,10 @@ async function renderPageToCanvas(page: ExportDesignPage) {
       const shapeType: CanvasShapeKind =
         shapeBox.shapeType === "circle" || shapeBox.shapeType === "triangle" ? shapeBox.shapeType : "square";
       const squareBleed = 0.75;
+      const nearLeftEdge = shapeX <= 1;
+      const nearTopEdge = shapeY <= 1;
+      const nearRightEdge = Math.abs(shapeX + shapeWidth - width) <= 1.5;
+      const nearBottomEdge = Math.abs(shapeY + shapeHeight - height) <= 1.5;
 
       ctx.save();
       ctx.translate(shapeX + shapeWidth / 2, shapeY + shapeHeight / 2);
@@ -290,11 +294,15 @@ async function renderPageToCanvas(page: ExportDesignPage) {
         ctx.closePath();
       } else {
         // Small bleed prevents 1px right/bottom seams from subpixel rasterization.
+        const bleedLeft = squareBleed + (nearLeftEdge ? 1 : 0);
+        const bleedTop = squareBleed + (nearTopEdge ? 1 : 0);
+        const bleedRight = squareBleed + (nearRightEdge ? 1 : 0);
+        const bleedBottom = squareBleed + (nearBottomEdge ? 1 : 0);
         ctx.rect(
-          -shapeWidth / 2 - squareBleed,
-          -shapeHeight / 2 - squareBleed,
-          shapeWidth + squareBleed * 2,
-          shapeHeight + squareBleed * 2,
+          -shapeWidth / 2 - bleedLeft,
+          -shapeHeight / 2 - bleedTop,
+          shapeWidth + bleedLeft + bleedRight,
+          shapeHeight + bleedTop + bleedBottom,
         );
       }
 
