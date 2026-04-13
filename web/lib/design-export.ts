@@ -18,6 +18,7 @@ export type ExportDesignPage = {
 };
 
 type ImageExportFormat = "png" | "jpg";
+const DEFAULT_TEXT_LINE_HEIGHT = 1.25;
 
 function normalizeNumber(value: number, fallback: number) {
   return Number.isFinite(value) ? value : fallback;
@@ -109,7 +110,8 @@ function wrapTextLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: nu
 
     for (const token of tokens) {
       const candidate = `${currentLine}${token}`;
-      const fits = ctx.measureText(candidate).width <= maxWidth;
+      // Small tolerance avoids false wraps from sub-pixel/measurement variance.
+      const fits = ctx.measureText(candidate).width <= maxWidth + 1.5;
 
       if (fits || !currentLine) {
         currentLine = candidate;
@@ -132,6 +134,10 @@ function wrapTextLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: nu
   }
 
   return lines;
+}
+
+function containsMyanmarText(value: string) {
+  return /[\u1000-\u109F\uA9E0-\uA9FF\uAA60-\uAA7F]/.test(value);
 }
 
 async function loadImage(src: string) {
@@ -342,7 +348,11 @@ async function renderPageToCanvas(page: ExportDesignPage) {
     const color = box.color || "#0f172a";
     const align = box.textAlign || "left";
     const rotation = normalizeNumber(box.rotation ?? 0, 0);
-    const lineHeight = fontSize * 1.25;
+    const lineHeightMultiplier = Math.max(
+      0.8,
+      Math.min(3, normalizeNumber(box.lineHeight ?? DEFAULT_TEXT_LINE_HEIGHT, DEFAULT_TEXT_LINE_HEIGHT)),
+    );
+    const lineHeight = fontSize * lineHeightMultiplier;
     const topLeading = Math.max(0, (lineHeight - fontSize) / 2);
 
     ctx.save();
@@ -356,7 +366,8 @@ async function renderPageToCanvas(page: ExportDesignPage) {
     ctx.textAlign = align;
 
     const maxLines = Math.max(1, Math.floor(Math.max(lineHeight, boxHeight - topLeading) / lineHeight));
-    const lines = wrapTextLines(ctx, box.text || "", boxWidth).slice(0, maxLines);
+    const rawText = box.text || "";
+    const lines = (containsMyanmarText(rawText) ? rawText.split(/\r?\n/) : wrapTextLines(ctx, rawText, boxWidth)).slice(0, maxLines);
     const textX = align === "left" ? 0 : align === "center" ? boxWidth / 2 : boxWidth;
 
     lines.forEach((line, index) => {
@@ -369,14 +380,20 @@ async function renderPageToCanvas(page: ExportDesignPage) {
   return canvas;
 }
 
-async function renderElementToCanvas(sourceElement: HTMLElement) {
+async function renderElementToCanvas(sourceElement: HTMLElement, page?: ExportDesignPage, scaleOverride?: number) {
   const { default: html2canvas } = await import("html2canvas");
+  if (page) {
+    await ensureExportFontsLoaded(page.textBoxes);
+  }
+  if (typeof document !== "undefined" && "fonts" in document) {
+    await (document as Document & { fonts: FontFaceSet }).fonts.ready;
+  }
   const targetRect = sourceElement.getBoundingClientRect();
 
   return html2canvas(sourceElement, {
     backgroundColor: null,
     useCORS: true,
-    scale: Math.max(1, window.devicePixelRatio || 1),
+    scale: Math.max(1, (scaleOverride ?? window.devicePixelRatio ?? 1)),
     width: Math.max(1, Math.round(targetRect.width)),
     height: Math.max(1, Math.round(targetRect.height)),
     logging: false,
@@ -397,6 +414,7 @@ async function renderElementToCanvas(sourceElement: HTMLElement) {
       if (clonedCanvas) {
         clonedCanvas.style.boxShadow = "none";
         clonedCanvas.style.borderColor = "transparent";
+        sanitizeCloneUnsupportedColors(clonedDoc, clonedCanvas);
       }
 
       clonedDoc.querySelectorAll<HTMLElement>("[data-canvas-element='true']").forEach((el) => {
@@ -434,6 +452,71 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function resizeCanvasToDisplaySize(source: HTMLCanvasElement, width: number, height: number) {
+  const targetWidth = Math.max(1, Math.round(width));
+  const targetHeight = Math.max(1, Math.round(height));
+  if (source.width === targetWidth && source.height === targetHeight) {
+    return source;
+  }
+
+  const resized = document.createElement("canvas");
+  resized.width = targetWidth;
+  resized.height = targetHeight;
+  const ctx = resized.getContext("2d");
+  if (!ctx) return source;
+  ctx.drawImage(source, 0, 0, source.width, source.height, 0, 0, targetWidth, targetHeight);
+  return resized;
+}
+
+const UNSUPPORTED_COLOR_FUNCTION_RE = /\b(?:oklch|oklab|lch|lab)\(/i;
+
+function sanitizeCloneUnsupportedColors(clonedDoc: Document, root: HTMLElement) {
+  const view = clonedDoc.defaultView;
+  if (!view) return;
+
+  const probe = clonedDoc.createElement("span");
+  probe.style.position = "fixed";
+  probe.style.left = "-9999px";
+  probe.style.top = "-9999px";
+  probe.style.pointerEvents = "none";
+  clonedDoc.body.appendChild(probe);
+
+  const toSafeColor = (value: string, fallback: string) => {
+    if (!UNSUPPORTED_COLOR_FUNCTION_RE.test(value)) return value;
+    probe.style.color = "";
+    probe.style.color = value;
+    const resolved = view.getComputedStyle(probe).color || "";
+    return resolved && !UNSUPPORTED_COLOR_FUNCTION_RE.test(resolved) ? resolved : fallback;
+  };
+
+  const colorProps: readonly [string, string][] = [
+    ["color", "#0f172a"],
+    ["background-color", "transparent"],
+    ["border-top-color", "transparent"],
+    ["border-right-color", "transparent"],
+    ["border-bottom-color", "transparent"],
+    ["border-left-color", "transparent"],
+    ["outline-color", "transparent"],
+    ["text-decoration-color", "#0f172a"],
+    ["caret-color", "#0f172a"],
+    ["fill", "none"],
+    ["stroke", "none"],
+    ["stop-color", "#0f172a"],
+  ];
+
+  const targets = [root, ...Array.from(root.querySelectorAll<HTMLElement>("*"))];
+  for (const node of targets) {
+    const computed = view.getComputedStyle(node);
+    for (const [prop, fallback] of colorProps) {
+      const value = computed.getPropertyValue(prop).trim();
+      if (!value || !UNSUPPORTED_COLOR_FUNCTION_RE.test(value)) continue;
+      node.style.setProperty(prop, toSafeColor(value, fallback));
+    }
+  }
+
+  probe.remove();
+}
+
 export async function exportDesignAsImage(
   page: ExportDesignPage,
   format: ImageExportFormat,
@@ -443,9 +526,18 @@ export async function exportDesignAsImage(
   let canvas: HTMLCanvasElement;
   if (sourceElement) {
     try {
-      canvas = await renderElementToCanvas(sourceElement);
-    } catch {
-      canvas = await renderPageToCanvas(page);
+      canvas = await renderElementToCanvas(sourceElement, page);
+    } catch (firstError) {
+      try {
+        // Retry once with a lower scale for memory-constrained devices.
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 120));
+        canvas = await renderElementToCanvas(sourceElement, page, 1);
+      } catch (secondError) {
+        console.warn("DOM export capture failed after retry. Falling back to canvas renderer.", { firstError, secondError });
+        const rendered = await renderPageToCanvas(page);
+        const rect = sourceElement.getBoundingClientRect();
+        canvas = resizeCanvasToDisplaySize(rendered, rect.width, rect.height);
+      }
     }
   } else {
     canvas = await renderPageToCanvas(page);

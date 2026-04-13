@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, String
+from sqlalchemy import select, func, or_, String, cast
 from typing import Optional
 from uuid import UUID
+from datetime import datetime, timedelta, timezone
 from app.models.base import get_db
 from app.models.design import Design
 from app.models.user import User
@@ -22,41 +23,37 @@ async def get_designs(
 ):
     """Get all designs for the current user with filters and search."""
     try:
-        offset = (page - 1) * limit
-        
+        safe_page = max(1, int(page or 1))
+        safe_limit = max(1, min(200, int(limit or 20)))
+        offset = (safe_page - 1) * safe_limit
+
         # Base query
         query = (
-            select(
-                Design,
-                User.name.label("user_name"),
-                func.count(func.distinct(None)).label("collaborators_count"),
-                func.count(func.distinct(None)).label("views_count")
-            )
+            select(Design, User.name.label("user_name"))
             .join(User, Design.user_id == User.id, isouter=True)
             .where(Design.user_id == current_user["user_id"])
-            .group_by(Design.id, User.name)
-            .order_by(Design.updated_at.desc())
-            .limit(limit)
-            .offset(offset)
         )
         
         # Apply filters
         if filter == "recent":
-            query = query.where(Design.updated_at >= func.now() - func.interval("7 days"))
+            cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+            query = query.where(Design.updated_at >= cutoff)
         elif filter == "templates":
-            query = query.where(Design.is_template == True)
+            query = query.where(Design.is_template.is_(True))
         elif filter == "shared":
-            query = query.where(Design.is_public == True)
+            query = query.where(Design.is_public.is_(True))
         
         # Apply search
         if search:
-            search_pattern = f"%{search}%"
+            search_pattern = f"%{search.strip()}%"
             query = query.where(
                 or_(
                     Design.name.ilike(search_pattern),
-                    Design.tags.cast(String).ilike(search_pattern)
+                    cast(Design.tags, String).ilike(search_pattern),
                 )
             )
+
+        query = query.order_by(Design.updated_at.desc()).offset(offset).limit(safe_limit)
         
         result = await db.execute(query)
         designs = result.all()
@@ -77,6 +74,8 @@ async def get_designs(
                 is_template=design.is_template,
                 is_public=design.is_public,
                 tags=design.tags or [],
+                collaborators_count=0,
+                views_count=0,
                 created_at=design.created_at,
                 updated_at=design.updated_at
             ))

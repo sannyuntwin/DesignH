@@ -11,6 +11,7 @@ export type CanvasTextBox = {
   text: string;
   fontFamily?: string;
   fontSize?: number;
+  lineHeight?: number;
   fontWeight?: "400" | "700";
   textAlign?: "left" | "center" | "right";
   color?: string;
@@ -111,6 +112,7 @@ const DEFAULT_TEXT_BOX_WIDTH = 260;
 const DEFAULT_TEXT_BOX_HEIGHT = 90;
 const DEFAULT_FONT_FAMILY = "Arial";
 const DEFAULT_FONT_SIZE = 42;
+const DEFAULT_LINE_HEIGHT = 1.25;
 const DEFAULT_TEXT_COLOR = "#0f172a";
 const DEFAULT_IMAGE_BOX_WIDTH = 280;
 const DEFAULT_IMAGE_BOX_HEIGHT = 180;
@@ -175,6 +177,7 @@ export default function DesignCanvas({
 }: DesignCanvasProps) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingDraft, setEditingDraft] = useState<{ id: string; text: string; height: number } | null>(null);
   const [dragState, setDragState] = useState<DragState | null>(null);
   const [resizeState, setResizeState] = useState<ResizeState | null>(null);
   const [rotateState, setRotateState] = useState<RotateState | null>(null);
@@ -202,6 +205,30 @@ export default function DesignCanvas({
         "#0f172a",
       )} 100%)`
     : undefined;
+
+  const commitEditingDraft = () => {
+    if (!editingDraft) {
+      setEditingId(null);
+      return;
+    }
+
+    const source = textBoxes.find((box) => box.id === editingDraft.id);
+    if (source) {
+      const sourceY = toFiniteNumber(source.y, 0);
+      const currentHeight = Math.max(48, toFiniteNumber(source.height, DEFAULT_TEXT_BOX_HEIGHT));
+      const maxHeight = Math.max(48, height - sourceY);
+      const nextHeight = Math.max(48, Math.min(maxHeight, toFiniteNumber(editingDraft.height, currentHeight)));
+      const textChanged = editingDraft.text !== source.text;
+      const heightChanged = Math.abs(nextHeight - currentHeight) > 0.5;
+
+      if (textChanged || heightChanged) {
+        onUpdateTextBox(source.id, { text: editingDraft.text, height: nextHeight });
+      }
+    }
+
+    setEditingDraft(null);
+    setEditingId(null);
+  };
 
   useEffect(() => {
     if (!dragState || resizeState || rotateState || imageDragState || imageResizeState || shapeDragState || shapeResizeState || shapeRotateState) return;
@@ -504,11 +531,11 @@ export default function DesignCanvas({
       style={{ width, height, backgroundColor, backgroundImage: pageBackgroundImage }}
       onMouseDown={(event) => {
         if (event.target === canvasRef.current) {
+          commitEditingDraft();
           onSelectText(null);
           onSelectImage(null);
           onSelectShape(null);
         }
-        setEditingId(null);
       }}
     >
       {showGrid && (
@@ -559,7 +586,7 @@ export default function DesignCanvas({
               event.stopPropagation();
               event.preventDefault();
               onSelectImage(image.id, { multi: event.ctrlKey || event.metaKey });
-              setEditingId(null);
+              commitEditingDraft();
               setDragState(null);
               setResizeState(null);
               setRotateState(null);
@@ -653,7 +680,7 @@ export default function DesignCanvas({
               event.stopPropagation();
               event.preventDefault();
               onSelectShape(shape.id, { multi: event.ctrlKey || event.metaKey });
-              setEditingId(null);
+              commitEditingDraft();
               setDragState(null);
               setResizeState(null);
               setRotateState(null);
@@ -794,9 +821,12 @@ export default function DesignCanvas({
         const boxWeight = box.fontWeight || "700";
         const boxAlign = box.textAlign || "left";
         const boxRotation = normalizeAngle(box.rotation ?? 0);
-        const textLineHeight = 1.25;
+        const textLineHeight = Math.max(0.8, Math.min(3, toFiniteNumber(box.lineHeight ?? DEFAULT_LINE_HEIGHT, DEFAULT_LINE_HEIGHT)));
         const isSelected = selectedTextId === box.id || selectedTextIds.includes(box.id);
         const isEditing = editingId === box.id;
+        const draft = isEditing && editingDraft?.id === box.id ? editingDraft : null;
+        const renderedText = draft ? draft.text : box.text;
+        const renderedHeight = draft ? Math.max(boxHeight, toFiniteNumber(draft.height, boxHeight)) : boxHeight;
 
         return (
           <div
@@ -809,7 +839,7 @@ export default function DesignCanvas({
               left: boxX,
               top: boxY,
               width: boxWidth,
-              height: boxHeight,
+              height: renderedHeight,
               transform: `rotate(${boxRotation}deg)`,
               transformOrigin: "center center",
               zIndex: Math.round(toFiniteNumber(box.layer ?? 0, 0)),
@@ -839,20 +869,21 @@ export default function DesignCanvas({
               event.stopPropagation();
               onSelectText(box.id);
               setEditingId(box.id);
+              setEditingDraft({ id: box.id, text: box.text, height: boxHeight });
             }}
           >
             {isEditing ? (
               <textarea
-                value={box.text}
+                value={renderedText}
                 onChange={(event) => {
                   const nextText = event.target.value;
                   const nextHeight = Math.max(
                     48,
                     Math.min(height - boxY, event.currentTarget.scrollHeight + 6),
                   );
-                  onUpdateTextBox(box.id, { text: nextText, height: nextHeight });
+                  setEditingDraft({ id: box.id, text: nextText, height: nextHeight });
                 }}
-                onBlur={() => setEditingId(null)}
+                onBlur={commitEditingDraft}
                 onMouseDown={(event) => event.stopPropagation()}
                 onKeyDown={(event) => {
                   if (event.key === "Escape") {

@@ -31,6 +31,8 @@ type CanvasPage = {
 const THUMBNAIL_MAX_WIDTH = 76;
 const THUMBNAIL_MAX_HEIGHT = 108;
 const EDITOR_DOC_KEY_PREFIX = "design-editor-doc-v1";
+const EDITOR_DOC_INDEXEDDB_NAME = "design-editor-docs-v1";
+const EDITOR_DOC_INDEXEDDB_STORE = "docs";
 const CLOUD_DOC_NAME_PREFIX = "design-editor-cloud-v1";
 const HISTORY_LIMIT = 80;
 const DEFAULT_GRADIENT_COLORS = ["#f8fafc", "#e2e8f0", "#cbd5e1"] as const;
@@ -47,6 +49,7 @@ const FONT_FAMILY_OPTIONS = [
   "Courier New",
   "Impact",
 ] as const;
+const DEFAULT_TEXT_LINE_HEIGHT = 1.25;
 type UploadedFontFormat = "woff2" | "woff" | "truetype" | "opentype";
 type UploadedFont = {
   family: string;
@@ -188,6 +191,24 @@ function escapeCssString(value: string) {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+function normalizeFontFamilyKey(value: string) {
+  return value.replace(/^['"]+|['"]+$/g, "").trim().toLowerCase();
+}
+
+function clearDocumentFontFamily(family: string) {
+  if (typeof document === "undefined" || !("fonts" in document)) return;
+
+  const targetFamily = normalizeFontFamilyKey(family);
+  if (!targetFamily) return;
+
+  const fontSet = (document as Document & { fonts: FontFaceSet }).fonts;
+  for (const fontFace of Array.from(fontSet)) {
+    if (normalizeFontFamilyKey(fontFace.family) === targetFamily) {
+      fontSet.delete(fontFace);
+    }
+  }
+}
+
 function toFontFamilyCss(value: string) {
   return `"${escapeCssString(value)}", Arial, sans-serif`;
 }
@@ -229,6 +250,7 @@ function sanitizeTextBox(input: Partial<CanvasTextBox>, fallbackLayer: number): 
     typeof input.fontFamily === "string" && input.fontFamily.trim()
       ? input.fontFamily.trim()
       : FONT_FAMILY_OPTIONS[0];
+  const lineHeight = clamp(toSafeNumber(input.lineHeight ?? DEFAULT_TEXT_LINE_HEIGHT, DEFAULT_TEXT_LINE_HEIGHT), 0.8, 3);
   const textAlign =
     input.textAlign === "left" || input.textAlign === "center" || input.textAlign === "right"
       ? input.textAlign
@@ -243,6 +265,7 @@ function sanitizeTextBox(input: Partial<CanvasTextBox>, fallbackLayer: number): 
     text: typeof input.text === "string" ? input.text : "New text",
     fontFamily,
     fontSize: clamp(toSafeNumber(input.fontSize, 42), 8, 220),
+    lineHeight,
     fontWeight,
     textAlign,
     color: typeof input.color === "string" ? input.color : "#0f172a",
@@ -402,6 +425,93 @@ function loadInitialEditorDoc(preset: string, width: number, height: number): St
   }
 }
 
+function openEditorDocDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = window.indexedDB.open(EDITOR_DOC_INDEXEDDB_NAME, 1);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(EDITOR_DOC_INDEXEDDB_STORE)) {
+        db.createObjectStore(EDITOR_DOC_INDEXEDDB_STORE);
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("Unable to open design cache."));
+  });
+}
+
+async function readEditorDocFromIndexedDb(storageKey: string): Promise<StoredEditorDoc | null> {
+  if (typeof window === "undefined" || !("indexedDB" in window)) return null;
+
+  let db: IDBDatabase | null = null;
+  try {
+    db = await openEditorDocDatabase();
+    const rawValue = await new Promise<unknown>((resolve, reject) => {
+      const transaction = db.transaction(EDITOR_DOC_INDEXEDDB_STORE, "readonly");
+      const store = transaction.objectStore(EDITOR_DOC_INDEXEDDB_STORE);
+      const request = store.get(storageKey);
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error ?? new Error("Unable to read design cache."));
+    });
+
+    if (typeof rawValue !== "string") return null;
+    return JSON.parse(rawValue) as StoredEditorDoc;
+  } catch {
+    return null;
+  } finally {
+    db?.close();
+  }
+}
+
+async function writeEditorDocToIndexedDb(storageKey: string, payload: string): Promise<void> {
+  if (typeof window === "undefined" || !("indexedDB" in window)) return;
+
+  let db: IDBDatabase | null = null;
+  try {
+    db = await openEditorDocDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(EDITOR_DOC_INDEXEDDB_STORE, "readwrite");
+      const store = transaction.objectStore(EDITOR_DOC_INDEXEDDB_STORE);
+      const request = store.put(payload, storageKey);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error ?? new Error("Unable to write design cache."));
+    });
+  } finally {
+    db?.close();
+  }
+}
+
+function isStorageQuotaExceeded(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const maybeDom = error as DOMException;
+  return (
+    maybeDom.name === "QuotaExceededError" ||
+    maybeDom.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+    maybeDom.code === 22 ||
+    maybeDom.code === 1014
+  );
+}
+
+function pruneEditorDocCache(currentKey: string) {
+  if (typeof window === "undefined") return;
+  const keysToRemove: string[] = [];
+
+  for (let i = 0; i < window.localStorage.length; i += 1) {
+    const key = window.localStorage.key(i);
+    if (!key) continue;
+    if (key.startsWith(`${EDITOR_DOC_KEY_PREFIX}:`) && key !== currentKey) {
+      keysToRemove.push(key);
+    }
+  }
+
+  for (const key of keysToRemove) {
+    window.localStorage.removeItem(key);
+  }
+}
+
 function EditorPageContent() {
   const searchParams = useSearchParams();
 
@@ -428,7 +538,7 @@ function EditorPageContent() {
   const [uploadedFonts, setUploadedFonts] = useState<UploadedFont[]>(initialDoc.uploadedFonts);
   const [fontInputValue, setFontInputValue] = useState("");
   const [isExporting, setIsExporting] = useState(false);
-  const [, setExportError] = useState<string | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [, setCloudSyncError] = useState<string | null>(null);
   const [cloudDesignId, setCloudDesignId] = useState<string | null>(null);
   const [isCloudSyncReady, setIsCloudSyncReady] = useState(false);
@@ -453,11 +563,14 @@ function EditorPageContent() {
   const previousSnapshotRef = useRef<StoredEditorDoc | null>(null);
   const previousSnapshotKeyRef = useRef("");
   const skipHistoryPushRef = useRef(false);
+  const localAutosaveEnabledRef = useRef(true);
   const isHydrated = useSyncExternalStore(
     () => () => {},
     () => true,
     () => false,
   );
+
+  const hasHydratedFromIndexedDbRef = useRef(false);
 
   const currentDoc = useMemo<StoredEditorDoc>(
     () => ({
@@ -635,6 +748,26 @@ function EditorPageContent() {
     setCustomFonts(normalized.customFonts);
     setUploadedFonts(normalized.uploadedFonts);
   }, [fallbackDoc, height, width, resetHistoryTracking]);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    if (hasHydratedFromIndexedDbRef.current) return;
+
+    hasHydratedFromIndexedDbRef.current = true;
+    let cancelled = false;
+    const storageKey = getDocStorageKey(preset, width, height);
+
+    const hydrateFromIndexedDb = async () => {
+      const cachedDoc = await readEditorDocFromIndexedDb(storageKey);
+      if (cancelled || !cachedDoc) return;
+      applyStoredDoc(cachedDoc, { resetHistory: true });
+    };
+
+    void hydrateFromIndexedDb();
+    return () => {
+      cancelled = true;
+    };
+  }, [applyStoredDoc, height, isHydrated, preset, width]);
 
   const undo = useCallback(() => {
     const previous = undoStackRef.current.pop();
@@ -817,6 +950,7 @@ function EditorPageContent() {
       text: "Add a heading",
       fontFamily: FONT_FAMILY_OPTIONS[0],
       fontSize: 56,
+      lineHeight: DEFAULT_TEXT_LINE_HEIGHT,
       fontWeight: "700",
       textAlign: "left",
       color: "#0f172a",
@@ -1071,6 +1205,16 @@ function EditorPageContent() {
     updateTextBox(selectedTextBox.id, updates);
   };
 
+  const applySelectedFontFamily = (family: string) => {
+    const normalized = family.trim().toLowerCase();
+    const isUploaded = uploadedFonts.some((font) => font.family.toLowerCase() === normalized);
+    if (isUploaded) {
+      updateSelectedTextBox({ fontFamily: family, fontWeight: "400" });
+      return;
+    }
+    updateSelectedTextBox({ fontFamily: family });
+  };
+
   const addCustomFont = () => {
     const nextFont = sanitizeFontName(fontInputValue);
     if (!nextFont) return;
@@ -1078,7 +1222,7 @@ function EditorPageContent() {
     setCustomFonts((prev) => mergeFontOptions(prev, [nextFont]));
     setFontInputValue("");
     if (selectedTextBox) {
-      updateSelectedTextBox({ fontFamily: nextFont });
+      applySelectedFontFamily(nextFont);
     }
   };
 
@@ -1106,14 +1250,29 @@ function EditorPageContent() {
       setUploadedFonts((prev) => upsertUploadedFont(prev, uploaded));
 
       if (typeof FontFace !== "undefined" && "fonts" in document) {
+        clearDocumentFontFamily(familyFromFile);
         const formatHint = format ? ` format("${format}")` : "";
-        const fontFace = new FontFace(familyFromFile, `url(${source})${formatHint}`);
-        await fontFace.load();
-        document.fonts.add(fontFace);
+        const fontSet = (document as Document & { fonts: FontFaceSet }).fonts;
+        const regularFace = new FontFace(familyFromFile, `url(${source})${formatHint}`, {
+          style: "normal",
+          weight: "400",
+        });
+        const boldFace = new FontFace(familyFromFile, `url(${source})${formatHint}`, {
+          style: "normal",
+          weight: "700",
+        });
+        await Promise.all([regularFace.load(), boldFace.load()]);
+        fontSet.add(regularFace);
+        fontSet.add(boldFace);
+        const escapedFamily = escapeCssString(familyFromFile);
+        await Promise.all([
+          fontSet.load(`400 16px "${escapedFamily}"`).catch(() => []),
+          fontSet.load(`700 16px "${escapedFamily}"`).catch(() => []),
+        ]);
       }
 
       if (selectedTextBox) {
-        updateSelectedTextBox({ fontFamily: familyFromFile });
+        updateSelectedTextBox({ fontFamily: familyFromFile, fontWeight: "400" });
       }
     } catch {
       setExportError("Unable to upload font.");
@@ -1151,8 +1310,19 @@ function EditorPageContent() {
     try {
       setIsExporting(true);
       setExportError(null);
+      const activeElement = document.activeElement as HTMLElement | null;
+      const activeTag = activeElement?.tagName.toLowerCase();
+      if (activeElement && (activeElement.isContentEditable || activeTag === "input" || activeTag === "textarea" || activeTag === "select")) {
+        activeElement.blur();
+      }
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => resolve());
+        });
+      });
       await exportDesignAsImage(activePage, format, `${filenameBase}-page-${pageNumber}`, designCanvasElement);
     } catch (error) {
+      console.error("Image export failed:", error);
       setExportError(error instanceof Error ? error.message : "Unable to export image.");
     } finally {
       setIsExporting(false);
@@ -1165,8 +1335,19 @@ function EditorPageContent() {
     try {
       setIsExporting(true);
       setExportError(null);
+      const activeElement = document.activeElement as HTMLElement | null;
+      const activeTag = activeElement?.tagName.toLowerCase();
+      if (activeElement && (activeElement.isContentEditable || activeTag === "input" || activeTag === "textarea" || activeTag === "select")) {
+        activeElement.blur();
+      }
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => resolve());
+        });
+      });
       await exportDesignAsPdf(pages, filenameBase);
     } catch (error) {
+      console.error("PDF export failed:", error);
       setExportError(error instanceof Error ? error.message : "Unable to export PDF.");
     } finally {
       setIsExporting(false);
@@ -1500,7 +1681,10 @@ function EditorPageContent() {
         const family = escapeCssString(font.family);
         const source = escapeCssString(font.source);
         const format = font.format ? ` format("${font.format}")` : "";
-        return `@font-face{font-family:"${family}";src:url("${source}")${format};font-display:swap;}`;
+        return [
+          `@font-face{font-family:"${family}";src:url("${source}")${format};font-weight:400;font-style:normal;font-display:swap;}`,
+          `@font-face{font-family:"${family}";src:url("${source}")${format};font-weight:700;font-style:normal;font-display:swap;}`,
+        ].join("");
       })
       .join("\n");
   }, [uploadedFonts]);
@@ -1543,7 +1727,51 @@ function EditorPageContent() {
   }, [currentDoc, updateHistoryAvailability]);
 
   useEffect(() => {
-    window.localStorage.setItem(getDocStorageKey(preset, width, height), JSON.stringify(currentDoc));
+    localAutosaveEnabledRef.current = true;
+  }, [height, preset, width]);
+
+  useEffect(() => {
+    if (!localAutosaveEnabledRef.current) return;
+
+    const storageKey = getDocStorageKey(preset, width, height);
+    const payload = JSON.stringify(currentDoc);
+
+    try {
+      window.localStorage.setItem(storageKey, payload);
+      return;
+    } catch (error) {
+      if (!isStorageQuotaExceeded(error)) {
+        console.warn("Local editor autosave failed.", error);
+        return;
+      }
+    }
+
+    try {
+      pruneEditorDocCache(storageKey);
+      window.localStorage.setItem(storageKey, payload);
+      return;
+    } catch (error) {
+      if (!isStorageQuotaExceeded(error)) {
+        console.warn("Local editor autosave failed after cache cleanup.", error);
+      }
+    }
+
+    localAutosaveEnabledRef.current = false;
+    console.warn("Local editor autosave disabled because browser storage quota is full.");
+  }, [currentDoc, height, preset, width]);
+
+  useEffect(() => {
+    const storageKey = getDocStorageKey(preset, width, height);
+    const payload = JSON.stringify(currentDoc);
+    const timer = window.setTimeout(() => {
+      void writeEditorDocToIndexedDb(storageKey, payload).catch((error) => {
+        console.warn("IndexedDB design cache write failed.", error);
+      });
+    }, 180);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
   }, [currentDoc, height, preset, width]);
 
   return (
@@ -1559,6 +1787,7 @@ function EditorPageContent() {
             <p className="text-xs text-slate-500">
               {visiblePages.length} page{visiblePages.length > 1 ? "s" : ""}
             </p>
+            {exportError ? <p className="text-xs text-rose-600">{exportError}</p> : null}
           </div>
           <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
             <button
@@ -1687,7 +1916,7 @@ function EditorPageContent() {
               Font
               <select
                 value={visibleSelectedTextBox.fontFamily || FONT_FAMILY_OPTIONS[0]}
-                onChange={(event) => updateSelectedTextBox({ fontFamily: event.target.value })}
+                onChange={(event) => applySelectedFontFamily(event.target.value)}
                 className="max-w-28 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
               >
                 {fontOptions.map((font) => (
@@ -1745,6 +1974,22 @@ function EditorPageContent() {
                   const value = Number.parseInt(event.target.value, 10);
                   if (!Number.isFinite(value)) return;
                   updateSelectedTextBox({ fontSize: Math.max(8, Math.min(220, value)) });
+                }}
+                className="w-14 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
+              />
+            </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Line
+              <input
+                type="number"
+                min={0.8}
+                max={3}
+                step={0.05}
+                value={visibleSelectedTextBox.lineHeight ?? DEFAULT_TEXT_LINE_HEIGHT}
+                onChange={(event) => {
+                  const value = Number.parseFloat(event.target.value);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedTextBox({ lineHeight: Math.max(0.8, Math.min(3, value)) });
                 }}
                 className="w-14 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
               />
@@ -2464,6 +2709,20 @@ function EditorPageContent() {
                               }}
                             />
                           )}
+                          <span className="pointer-events-none absolute inset-0 border border-slate-200" />
+                          {toSafeNumber(page.borderWidth, 0) > 0 && (
+                            <span
+                              className="pointer-events-none absolute inset-0"
+                              style={{
+                                borderStyle: "solid",
+                                borderWidth: Math.max(0, toSafeNumber(page.borderWidth, 0) * thumbScale),
+                                borderColor: page.borderGradientEnabled ? "transparent" : page.borderColor || "#0f172a",
+                                borderImageSource: getBorderGradientCss(page),
+                                borderImageSlice: page.borderGradientEnabled ? 1 : undefined,
+                                boxSizing: "border-box",
+                              }}
+                            />
+                          )}
                           {page.imageBoxes.map((image) => {
                             const previewX = Math.max(0, toSafeNumber(image.x, 0) * thumbScale);
                             const previewY = Math.max(0, toSafeNumber(image.y, 0) * thumbScale);
@@ -2473,12 +2732,9 @@ function EditorPageContent() {
                             const previewRotation = clamp(toSafeNumber(image.rotation ?? 0, 0), -180, 180);
 
                             return (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
+                              <span
                                 key={image.id}
-                                src={image.src}
-                                alt=""
-                                className="pointer-events-none absolute object-cover"
+                                className="pointer-events-none absolute block overflow-hidden rounded"
                                 style={{
                                   left: previewX,
                                   top: previewY,
@@ -2489,7 +2745,10 @@ function EditorPageContent() {
                                   transformOrigin: "center center",
                                   zIndex: Math.round(toSafeNumber(image.layer ?? 0, 0)),
                                 }}
-                              />
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img src={image.src} alt="" className="h-full w-full object-cover" />
+                              </span>
                             );
                           })}
                           {page.shapeBoxes.map((shape) => {
@@ -2503,14 +2762,14 @@ function EditorPageContent() {
                             const shapeType: CanvasShapeKind =
                               shape.shapeType === "circle" || shape.shapeType === "triangle" ? shape.shapeType : "square";
                             const shapeFillEnabled = shape.fillEnabled !== false;
-                            const fillColor = shape.fillColor || "#38bdf8";
+                            const fillColor = sanitizeHexColor(shape.fillColor, "#38bdf8");
                             const shapeGradientEnabled = shapeFillEnabled && Boolean(shape.gradientEnabled);
                             const shapeGradientDirection = shape.gradientDirection === "horizontal" ? "horizontal" : "vertical";
                             const [shapeGradientStart, shapeGradientMiddle, shapeGradientEnd] =
                               shape.gradientColors || DEFAULT_SHAPE_GRADIENT_COLORS;
                             const gradientId = `thumb-shape-grad-${shape.id}`;
                             const fillValue = shapeFillEnabled ? (shapeGradientEnabled ? `url(#${gradientId})` : fillColor) : "none";
-                            const strokeColor = shape.strokeColor || "#0f172a";
+                            const strokeColor = sanitizeHexColor(shape.strokeColor, "#0f172a");
                             const strokeWidth = Math.max(0, toSafeNumber(shape.strokeWidth ?? 2, 2));
                             // Use original shape dimensions so thumbnail stroke scales down with thumbnail size.
                             const normalizedStrokeWidth = Math.max(0, (strokeWidth * 100) / Math.max(baseWidth, baseHeight));
@@ -2539,9 +2798,9 @@ function EditorPageContent() {
                                         x2={shapeGradientDirection === "horizontal" ? "100%" : "0%"}
                                         y2={shapeGradientDirection === "horizontal" ? "0%" : "100%"}
                                       >
-                                        <stop offset="0%" stopColor={shapeGradientStart} />
-                                        <stop offset="50%" stopColor={shapeGradientMiddle} />
-                                        <stop offset="100%" stopColor={shapeGradientEnd} />
+                                        <stop offset="0%" stopColor={sanitizeHexColor(shapeGradientStart, DEFAULT_SHAPE_GRADIENT_COLORS[0])} />
+                                        <stop offset="50%" stopColor={sanitizeHexColor(shapeGradientMiddle, DEFAULT_SHAPE_GRADIENT_COLORS[1])} />
+                                        <stop offset="100%" stopColor={sanitizeHexColor(shapeGradientEnd, DEFAULT_SHAPE_GRADIENT_COLORS[2])} />
                                       </linearGradient>
                                     </defs>
                                   )}
@@ -2591,7 +2850,7 @@ function EditorPageContent() {
                             return (
                               <span
                                 key={box.id}
-                                className="absolute block whitespace-pre-wrap break-words"
+                                className="absolute block h-full whitespace-pre-wrap break-words"
                                 style={{
                                   left: previewX,
                                   top: previewY,
@@ -2604,27 +2863,18 @@ function EditorPageContent() {
                                   color: box.color || "#0f172a",
                                   transform: `rotate(${previewRotation}deg)`,
                                   transformOrigin: "center center",
-                                  lineHeight: 1.25,
+                                  lineHeight: clamp(
+                                    toSafeNumber(box.lineHeight ?? DEFAULT_TEXT_LINE_HEIGHT, DEFAULT_TEXT_LINE_HEIGHT),
+                                    0.8,
+                                    3,
+                                  ),
                                   zIndex: Math.round(toSafeNumber(box.layer ?? 0, 0)),
                                 }}
                               >
-                                {box.text}
+                                {box.text || "Double-click to edit"}
                               </span>
                             );
                           })}
-                          {toSafeNumber(page.borderWidth, 0) > 0 && (
-                            <span
-                              className="pointer-events-none absolute inset-0"
-                              style={{
-                                borderStyle: "solid",
-                                borderWidth: Math.max(0, toSafeNumber(page.borderWidth, 0) * thumbScale),
-                                borderColor: page.borderGradientEnabled ? "transparent" : page.borderColor || "#0f172a",
-                                borderImageSource: getBorderGradientCss(page),
-                                borderImageSlice: page.borderGradientEnabled ? 1 : undefined,
-                                boxSizing: "border-box",
-                              }}
-                            />
-                          )}
                         </span>
                       </button>
 
