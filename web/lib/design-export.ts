@@ -354,6 +354,44 @@ async function renderPageToCanvas(page: ExportDesignPage) {
   return canvas;
 }
 
+async function renderElementToCanvas(sourceElement: HTMLElement) {
+  const { default: html2canvas } = await import("html2canvas");
+  const targetRect = sourceElement.getBoundingClientRect();
+
+  return html2canvas(sourceElement, {
+    backgroundColor: null,
+    useCORS: true,
+    scale: Math.max(1, window.devicePixelRatio || 1),
+    width: Math.max(1, Math.round(targetRect.width)),
+    height: Math.max(1, Math.round(targetRect.height)),
+    logging: false,
+    onclone: (clonedDoc) => {
+      const style = clonedDoc.createElement("style");
+      style.textContent = `
+        [aria-label="Resize image"],
+        [aria-label="Resize shape"],
+        [aria-label="Resize text box"],
+        [aria-label="Rotate shape"],
+        [aria-label="Rotate text box"] {
+          display: none !important;
+        }
+      `;
+      clonedDoc.head.appendChild(style);
+
+      const clonedCanvas = clonedDoc.getElementById("design-canvas") as HTMLElement | null;
+      if (clonedCanvas) {
+        clonedCanvas.style.boxShadow = "none";
+        clonedCanvas.style.borderColor = "transparent";
+      }
+
+      clonedDoc.querySelectorAll<HTMLElement>("[data-canvas-element='true']").forEach((el) => {
+        el.style.outline = "none";
+        el.style.boxShadow = "none";
+      });
+    },
+  });
+}
+
 function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number) {
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
@@ -381,8 +419,13 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
-export async function exportDesignAsImage(page: ExportDesignPage, format: ImageExportFormat, filenameBase = "design") {
-  const canvas = await renderPageToCanvas(page);
+export async function exportDesignAsImage(
+  page: ExportDesignPage,
+  format: ImageExportFormat,
+  filenameBase = "design",
+  sourceElement?: HTMLElement | null,
+) {
+  const canvas = sourceElement ? await renderElementToCanvas(sourceElement) : await renderPageToCanvas(page);
   const type = format === "png" ? "image/png" : "image/jpeg";
   const quality = format === "jpg" ? 0.92 : undefined;
   const blob = await canvasToBlob(canvas, type, quality);

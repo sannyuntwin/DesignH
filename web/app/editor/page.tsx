@@ -958,11 +958,12 @@ function EditorPageContent() {
     if (!isHydrated) return;
 
     const pageNumber = Math.max(1, pages.findIndex((page) => page.id === activePage.id) + 1);
+    const designCanvasElement = document.getElementById("design-canvas") as HTMLElement | null;
 
     try {
       setIsExporting(true);
       setExportError(null);
-      await exportDesignAsImage(activePage, format, `${filenameBase}-page-${pageNumber}`);
+      await exportDesignAsImage(activePage, format, `${filenameBase}-page-${pageNumber}`, designCanvasElement);
     } catch (error) {
       setExportError(error instanceof Error ? error.message : "Unable to export image.");
     } finally {
