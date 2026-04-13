@@ -425,7 +425,17 @@ export async function exportDesignAsImage(
   filenameBase = "design",
   sourceElement?: HTMLElement | null,
 ) {
-  const canvas = sourceElement ? await renderElementToCanvas(sourceElement) : await renderPageToCanvas(page);
+  let canvas: HTMLCanvasElement;
+  if (sourceElement) {
+    try {
+      canvas = await renderElementToCanvas(sourceElement);
+    } catch {
+      canvas = await renderPageToCanvas(page);
+    }
+  } else {
+    canvas = await renderPageToCanvas(page);
+  }
+
   const type = format === "png" ? "image/png" : "image/jpeg";
   const quality = format === "jpg" ? 0.92 : undefined;
   const blob = await canvasToBlob(canvas, type, quality);
