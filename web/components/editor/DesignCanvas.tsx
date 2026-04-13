@@ -66,15 +66,18 @@ type DesignCanvasProps = {
   showGrid?: boolean;
   imageBoxes: CanvasImageBox[];
   selectedImageId: string | null;
-  onSelectImage: (id: string | null) => void;
+  selectedImageIds?: string[];
+  onSelectImage: (id: string | null, options?: { multi?: boolean }) => void;
   onUpdateImageBox: (id: string, updates: Partial<CanvasImageBox>) => void;
   shapeBoxes: CanvasShapeBox[];
   selectedShapeId: string | null;
-  onSelectShape: (id: string | null) => void;
+  selectedShapeIds?: string[];
+  onSelectShape: (id: string | null, options?: { multi?: boolean }) => void;
   onUpdateShapeBox: (id: string, updates: Partial<CanvasShapeBox>) => void;
   textBoxes: CanvasTextBox[];
   selectedTextId: string | null;
-  onSelectText: (id: string | null) => void;
+  selectedTextIds?: string[];
+  onSelectText: (id: string | null, options?: { multi?: boolean }) => void;
   onUpdateTextBox: (id: string, updates: Partial<CanvasTextBox>) => void;
 };
 
@@ -156,14 +159,17 @@ export default function DesignCanvas({
   showGrid = true,
   imageBoxes,
   selectedImageId,
+  selectedImageIds = [],
   onSelectImage,
   onUpdateImageBox,
   shapeBoxes,
   selectedShapeId,
+  selectedShapeIds = [],
   onSelectShape,
   onUpdateShapeBox,
   textBoxes,
   selectedTextId,
+  selectedTextIds = [],
   onSelectText,
   onUpdateTextBox,
 }: DesignCanvasProps) {
@@ -530,7 +536,7 @@ export default function DesignCanvas({
         const imageHeight = Math.max(10, toFiniteNumber(image.height, DEFAULT_IMAGE_BOX_HEIGHT));
         const imageOpacity = Math.max(0, Math.min(1, toFiniteNumber(image.opacity ?? 1, 1)));
         const imageRotation = normalizeAngle(image.rotation ?? 0);
-        const isSelected = selectedImageId === image.id;
+        const isSelected = selectedImageId === image.id || selectedImageIds.includes(image.id);
 
         return (
           <div
@@ -552,9 +558,7 @@ export default function DesignCanvas({
             onMouseDown={(event) => {
               event.stopPropagation();
               event.preventDefault();
-              onSelectImage(image.id);
-              onSelectText(null);
-              onSelectShape(null);
+              onSelectImage(image.id, { multi: event.ctrlKey || event.metaKey });
               setEditingId(null);
               setDragState(null);
               setResizeState(null);
@@ -627,7 +631,7 @@ export default function DesignCanvas({
         const strokeColor = sanitizeHexColor(shape.strokeColor, DEFAULT_SHAPE_STROKE);
         const strokeWidth = Math.max(0, toFiniteNumber(shape.strokeWidth ?? 2, 2));
         const normalizedStrokeWidth = Math.max(0, (strokeWidth * 100) / Math.max(shapeWidth, shapeHeight));
-        const isSelected = selectedShapeId === shape.id;
+        const isSelected = selectedShapeId === shape.id || selectedShapeIds.includes(shape.id);
 
         return (
           <div
@@ -648,9 +652,7 @@ export default function DesignCanvas({
             onMouseDown={(event) => {
               event.stopPropagation();
               event.preventDefault();
-              onSelectShape(shape.id);
-              onSelectText(null);
-              onSelectImage(null);
+              onSelectShape(shape.id, { multi: event.ctrlKey || event.metaKey });
               setEditingId(null);
               setDragState(null);
               setResizeState(null);
@@ -793,7 +795,7 @@ export default function DesignCanvas({
         const boxAlign = box.textAlign || "left";
         const boxRotation = normalizeAngle(box.rotation ?? 0);
         const textLineHeight = 1.25;
-        const isSelected = selectedTextId === box.id;
+        const isSelected = selectedTextId === box.id || selectedTextIds.includes(box.id);
         const isEditing = editingId === box.id;
 
         return (
@@ -814,9 +816,7 @@ export default function DesignCanvas({
             }}
             onMouseDown={(event) => {
               event.stopPropagation();
-              onSelectText(box.id);
-              onSelectImage(null);
-              onSelectShape(null);
+              onSelectText(box.id, { multi: event.ctrlKey || event.metaKey });
 
               if (!isEditing) {
                 // Prevent browser text highlight while clicking/dragging the box.

@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ChangeEvent } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ChangeEvent } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import DesignCanvas, { CanvasImageBox, CanvasShapeBox, CanvasShapeKind, CanvasTextBox } from "@/components/editor/DesignCanvas";
@@ -32,6 +32,7 @@ const THUMBNAIL_MAX_WIDTH = 76;
 const THUMBNAIL_MAX_HEIGHT = 108;
 const EDITOR_DOC_KEY_PREFIX = "design-editor-doc-v1";
 const CLOUD_DOC_NAME_PREFIX = "design-editor-cloud-v1";
+const HISTORY_LIMIT = 80;
 const DEFAULT_GRADIENT_COLORS = ["#f8fafc", "#e2e8f0", "#cbd5e1"] as const;
 const DEFAULT_BORDER_GRADIENT_COLORS = ["#0f172a", "#475569", "#0f172a"] as const;
 const DEFAULT_SHAPE_GRADIENT_COLORS = ["#38bdf8", "#22d3ee", "#818cf8"] as const;
@@ -53,6 +54,13 @@ type UploadedFont = {
   format?: UploadedFontFormat;
 };
 
+type CopiedElement =
+  | { type: "text"; data: CanvasTextBox }
+  | { type: "image"; data: CanvasImageBox }
+  | { type: "shape"; data: CanvasShapeBox };
+
+type SelectionType = "text" | "image" | "shape";
+
 function createPageId() {
   return `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -71,6 +79,17 @@ function createShapeId() {
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
+}
+
+function getPageMaxLayer(page: CanvasPage) {
+  const layers = [...page.imageBoxes, ...page.shapeBoxes, ...page.textBoxes].map((item) =>
+    Math.round(toSafeNumber(item.layer ?? 0, 0)),
+  );
+  return layers.length > 0 ? Math.max(...layers) : 0;
+}
+
+function cloneStoredDoc(doc: StoredEditorDoc): StoredEditorDoc {
+  return JSON.parse(JSON.stringify(doc)) as StoredEditorDoc;
 }
 
 function toSafeNumber(value: unknown, fallback: number) {
@@ -401,17 +420,23 @@ function EditorPageContent() {
   const [selectedTextId, setSelectedTextId] = useState<string | null>(initialDoc.selectedTextId);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(initialDoc.selectedImageId);
   const [selectedShapeId, setSelectedShapeId] = useState<string | null>(initialDoc.selectedShapeId);
+  const [multiSelectedTextIds, setMultiSelectedTextIds] = useState<string[]>([]);
+  const [multiSelectedImageIds, setMultiSelectedImageIds] = useState<string[]>([]);
+  const [multiSelectedShapeIds, setMultiSelectedShapeIds] = useState<string[]>([]);
+  const [copiedElement, setCopiedElement] = useState<CopiedElement | null>(null);
   const [customFonts, setCustomFonts] = useState<string[]>(initialDoc.customFonts);
   const [uploadedFonts, setUploadedFonts] = useState<UploadedFont[]>(initialDoc.uploadedFonts);
   const [fontInputValue, setFontInputValue] = useState("");
   const [isExporting, setIsExporting] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
-  const [cloudSyncError, setCloudSyncError] = useState<string | null>(null);
+  const [, setExportError] = useState<string | null>(null);
+  const [, setCloudSyncError] = useState<string | null>(null);
   const [cloudDesignId, setCloudDesignId] = useState<string | null>(null);
   const [isCloudSyncReady, setIsCloudSyncReady] = useState(false);
   const [isDownloadMenuOpen, setIsDownloadMenuOpen] = useState(false);
   const [zoomPercent, setZoomPercent] = useState(100);
   const [isPanningCanvas, setIsPanningCanvas] = useState(false);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fontUploadInputRef = useRef<HTMLInputElement>(null);
   const downloadMenuRef = useRef<HTMLDivElement>(null);
@@ -422,6 +447,12 @@ function EditorPageContent() {
     startScrollLeft: number;
     startScrollTop: number;
   } | null>(null);
+  const undoStackRef = useRef<StoredEditorDoc[]>([]);
+  const redoStackRef = useRef<StoredEditorDoc[]>([]);
+  const historyReadyRef = useRef(false);
+  const previousSnapshotRef = useRef<StoredEditorDoc | null>(null);
+  const previousSnapshotKeyRef = useRef("");
+  const skipHistoryPushRef = useRef(false);
   const isHydrated = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -473,6 +504,163 @@ function EditorPageContent() {
   const selectedShapeBox = useMemo(() => {
     return activePage.shapeBoxes.find((box) => box.id === selectedShapeId) || null;
   }, [activePage.shapeBoxes, selectedShapeId]);
+
+  const selectedTextIdsForCanvas = useMemo(() => {
+    const ids = new Set<string>(multiSelectedTextIds);
+    if (selectedTextId) ids.add(selectedTextId);
+    return Array.from(ids);
+  }, [multiSelectedTextIds, selectedTextId]);
+
+  const selectedImageIdsForCanvas = useMemo(() => {
+    const ids = new Set<string>(multiSelectedImageIds);
+    if (selectedImageId) ids.add(selectedImageId);
+    return Array.from(ids);
+  }, [multiSelectedImageIds, selectedImageId]);
+
+  const selectedShapeIdsForCanvas = useMemo(() => {
+    const ids = new Set<string>(multiSelectedShapeIds);
+    if (selectedShapeId) ids.add(selectedShapeId);
+    return Array.from(ids);
+  }, [multiSelectedShapeIds, selectedShapeId]);
+
+  const applySelection = (type: SelectionType, id: string | null, options?: { multi?: boolean }) => {
+    if (!id) {
+      setSelectedTextId(null);
+      setSelectedImageId(null);
+      setSelectedShapeId(null);
+      setMultiSelectedTextIds([]);
+      setMultiSelectedImageIds([]);
+      setMultiSelectedShapeIds([]);
+      return;
+    }
+
+    const multi = Boolean(options?.multi);
+    let nextSelectedTextId = selectedTextId;
+    let nextSelectedImageId = selectedImageId;
+    let nextSelectedShapeId = selectedShapeId;
+
+    const nextTextIds = new Set<string>(multiSelectedTextIds);
+    const nextImageIds = new Set<string>(multiSelectedImageIds);
+    const nextShapeIds = new Set<string>(multiSelectedShapeIds);
+
+    if (selectedTextId) nextTextIds.add(selectedTextId);
+    if (selectedImageId) nextImageIds.add(selectedImageId);
+    if (selectedShapeId) nextShapeIds.add(selectedShapeId);
+
+    if (!multi) {
+      nextTextIds.clear();
+      nextImageIds.clear();
+      nextShapeIds.clear();
+      if (type === "text") {
+        nextSelectedTextId = id;
+        nextSelectedImageId = null;
+        nextSelectedShapeId = null;
+        nextTextIds.add(id);
+      } else if (type === "image") {
+        nextSelectedImageId = id;
+        nextSelectedTextId = null;
+        nextSelectedShapeId = null;
+        nextImageIds.add(id);
+      } else {
+        nextSelectedShapeId = id;
+        nextSelectedTextId = null;
+        nextSelectedImageId = null;
+        nextShapeIds.add(id);
+      }
+    } else {
+      const targetSet = type === "text" ? nextTextIds : type === "image" ? nextImageIds : nextShapeIds;
+      const isSelected = targetSet.has(id);
+
+      if (isSelected) {
+        targetSet.delete(id);
+      } else {
+        targetSet.add(id);
+      }
+
+      nextSelectedTextId = type === "text" && !isSelected ? id : null;
+      nextSelectedImageId = type === "image" && !isSelected ? id : null;
+      nextSelectedShapeId = type === "shape" && !isSelected ? id : null;
+    }
+
+    setSelectedTextId(nextSelectedTextId);
+    setSelectedImageId(nextSelectedImageId);
+    setSelectedShapeId(nextSelectedShapeId);
+    setMultiSelectedTextIds(Array.from(nextTextIds).filter((value) => value !== nextSelectedTextId));
+    setMultiSelectedImageIds(Array.from(nextImageIds).filter((value) => value !== nextSelectedImageId));
+    setMultiSelectedShapeIds(Array.from(nextShapeIds).filter((value) => value !== nextSelectedShapeId));
+  };
+
+  useEffect(() => {
+    const textIdSet = new Set(activePage.textBoxes.map((box) => box.id));
+    const imageIdSet = new Set(activePage.imageBoxes.map((box) => box.id));
+    const shapeIdSet = new Set(activePage.shapeBoxes.map((box) => box.id));
+
+    setMultiSelectedTextIds((prev) => prev.filter((id) => id !== selectedTextId && textIdSet.has(id)));
+    setMultiSelectedImageIds((prev) => prev.filter((id) => id !== selectedImageId && imageIdSet.has(id)));
+    setMultiSelectedShapeIds((prev) => prev.filter((id) => id !== selectedShapeId && shapeIdSet.has(id)));
+  }, [activePage.imageBoxes, activePage.shapeBoxes, activePage.textBoxes, selectedImageId, selectedShapeId, selectedTextId]);
+
+  const updateHistoryAvailability = useCallback(() => {
+    setCanUndo(undoStackRef.current.length > 0);
+    setCanRedo(redoStackRef.current.length > 0);
+  }, []);
+
+  const resetHistoryTracking = useCallback(() => {
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    historyReadyRef.current = false;
+    previousSnapshotRef.current = null;
+    previousSnapshotKeyRef.current = "";
+    skipHistoryPushRef.current = false;
+    updateHistoryAvailability();
+  }, [updateHistoryAvailability]);
+
+  const applyStoredDoc = useCallback((doc: StoredEditorDoc, options?: { skipHistoryPush?: boolean; resetHistory?: boolean }) => {
+    const normalized = sanitizeStoredEditorDoc(doc, width, height, fallbackDoc);
+    if (options?.skipHistoryPush) {
+      skipHistoryPushRef.current = true;
+    }
+    if (options?.resetHistory) {
+      resetHistoryTracking();
+    }
+
+    setPages(normalized.pages);
+    setActivePageId(normalized.activePageId);
+    setSelectedTextId(normalized.selectedTextId);
+    setSelectedImageId(normalized.selectedImageId);
+    setSelectedShapeId(normalized.selectedShapeId);
+    setMultiSelectedTextIds([]);
+    setMultiSelectedImageIds([]);
+    setMultiSelectedShapeIds([]);
+    setCustomFonts(normalized.customFonts);
+    setUploadedFonts(normalized.uploadedFonts);
+  }, [fallbackDoc, height, width, resetHistoryTracking]);
+
+  const undo = useCallback(() => {
+    const previous = undoStackRef.current.pop();
+    if (!previous) return;
+
+    redoStackRef.current.push(cloneStoredDoc(currentDoc));
+    if (redoStackRef.current.length > HISTORY_LIMIT) {
+      redoStackRef.current.shift();
+    }
+
+    updateHistoryAvailability();
+    applyStoredDoc(previous, { skipHistoryPush: true });
+  }, [applyStoredDoc, currentDoc, updateHistoryAvailability]);
+
+  const redo = useCallback(() => {
+    const next = redoStackRef.current.pop();
+    if (!next) return;
+
+    undoStackRef.current.push(cloneStoredDoc(currentDoc));
+    if (undoStackRef.current.length > HISTORY_LIMIT) {
+      undoStackRef.current.shift();
+    }
+
+    updateHistoryAvailability();
+    applyStoredDoc(next, { skipHistoryPush: true });
+  }, [applyStoredDoc, currentDoc, updateHistoryAvailability]);
 
   const visiblePages = isHydrated ? pages : fallbackDoc.pages;
   const visibleActivePageId = isHydrated ? activePageId : fallbackDoc.activePageId;
@@ -986,6 +1174,180 @@ function EditorPageContent() {
   };
 
   useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tagName = target.tagName.toLowerCase();
+        if (target.isContentEditable || tagName === "input" || tagName === "textarea" || tagName === "select") {
+          return;
+        }
+      }
+
+      const key = event.key.toLowerCase();
+      const selectedTextIds = new Set<string>(multiSelectedTextIds);
+      const selectedImageIds = new Set<string>(multiSelectedImageIds);
+      const selectedShapeIds = new Set<string>(multiSelectedShapeIds);
+      if (selectedTextId) selectedTextIds.add(selectedTextId);
+      if (selectedImageId) selectedImageIds.add(selectedImageId);
+      if (selectedShapeId) selectedShapeIds.add(selectedShapeId);
+
+      const hasCopyPasteModifier = event.ctrlKey || event.metaKey;
+      if (hasCopyPasteModifier && !event.altKey) {
+        if (key === "z") {
+          event.preventDefault();
+          if (event.shiftKey) {
+            redo();
+          } else {
+            undo();
+          }
+          return;
+        }
+        if (key === "y") {
+          event.preventDefault();
+          redo();
+          return;
+        }
+      }
+
+      if (key === "delete" || key === "backspace") {
+        const hasSelection = selectedTextIds.size > 0 || selectedImageIds.size > 0 || selectedShapeIds.size > 0;
+        if (!hasSelection) return;
+
+        event.preventDefault();
+        setPages((prev) =>
+          prev.map((page) =>
+            page.id === activePage.id
+              ? {
+                  ...page,
+                  textBoxes: page.textBoxes.filter((box) => !selectedTextIds.has(box.id)),
+                  imageBoxes: page.imageBoxes.filter((box) => !selectedImageIds.has(box.id)),
+                  shapeBoxes: page.shapeBoxes.filter((box) => !selectedShapeIds.has(box.id)),
+                }
+              : page,
+          ),
+        );
+        setSelectedTextId(null);
+        setSelectedImageId(null);
+        setSelectedShapeId(null);
+        setMultiSelectedTextIds([]);
+        setMultiSelectedImageIds([]);
+        setMultiSelectedShapeIds([]);
+        return;
+      }
+      if (!hasCopyPasteModifier || event.altKey) return;
+
+      if (key === "c") {
+        let payload: CopiedElement | null = null;
+        if (selectedTextBox) {
+          payload = { type: "text", data: { ...selectedTextBox } };
+        } else if (selectedImageBox) {
+          payload = { type: "image", data: { ...selectedImageBox } };
+        } else if (selectedShapeBox) {
+          payload = {
+            type: "shape",
+            data: {
+              ...selectedShapeBox,
+              gradientColors: selectedShapeBox.gradientColors ? [...selectedShapeBox.gradientColors] as [string, string, string] : undefined,
+            },
+          };
+        }
+
+        if (!payload) return;
+        event.preventDefault();
+        setCopiedElement(payload);
+        return;
+      }
+
+      if (key !== "v" || !copiedElement) return;
+      event.preventDefault();
+
+      if (copiedElement.type === "text") {
+        const source = copiedElement.data;
+        const pasted: CanvasTextBox = {
+          ...source,
+          id: createTextId(),
+          x: clamp(source.x, 0, Math.max(0, activePage.width - source.width)),
+          y: clamp(source.y, 0, Math.max(0, activePage.height - source.height)),
+          layer: getPageMaxLayer(activePage) + 1,
+        };
+
+        setPages((prev) =>
+          prev.map((page) =>
+            page.id === activePage.id ? { ...page, textBoxes: [...page.textBoxes, pasted] } : page,
+          ),
+        );
+        setSelectedTextId(pasted.id);
+        setSelectedImageId(null);
+        setSelectedShapeId(null);
+        setCopiedElement({ type: "text", data: { ...pasted } });
+        return;
+      }
+
+      if (copiedElement.type === "image") {
+        const source = copiedElement.data;
+        const pasted: CanvasImageBox = {
+          ...source,
+          id: createImageId(),
+          x: clamp(source.x, 0, Math.max(0, activePage.width - source.width)),
+          y: clamp(source.y, 0, Math.max(0, activePage.height - source.height)),
+          layer: getPageMaxLayer(activePage) + 1,
+        };
+
+        setPages((prev) =>
+          prev.map((page) =>
+            page.id === activePage.id ? { ...page, imageBoxes: [...page.imageBoxes, pasted] } : page,
+          ),
+        );
+        setSelectedImageId(pasted.id);
+        setSelectedTextId(null);
+        setSelectedShapeId(null);
+        setCopiedElement({ type: "image", data: { ...pasted } });
+        return;
+      }
+
+      const source = copiedElement.data;
+      const pasted: CanvasShapeBox = {
+        ...source,
+        id: createShapeId(),
+        x: clamp(source.x, 0, Math.max(0, activePage.width - source.width)),
+        y: clamp(source.y, 0, Math.max(0, activePage.height - source.height)),
+        layer: getPageMaxLayer(activePage) + 1,
+        gradientColors: source.gradientColors ? [...source.gradientColors] as [string, string, string] : undefined,
+      };
+
+      setPages((prev) =>
+        prev.map((page) =>
+          page.id === activePage.id ? { ...page, shapeBoxes: [...page.shapeBoxes, pasted] } : page,
+        ),
+      );
+      setSelectedShapeId(pasted.id);
+      setSelectedTextId(null);
+      setSelectedImageId(null);
+      setCopiedElement({ type: "shape", data: { ...pasted, gradientColors: pasted.gradientColors ? [...pasted.gradientColors] as [string, string, string] : undefined } });
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [
+    activePage,
+    currentDoc,
+    copiedElement,
+    multiSelectedImageIds,
+    multiSelectedShapeIds,
+    multiSelectedTextIds,
+    redo,
+    selectedImageBox,
+    selectedImageId,
+    selectedShapeBox,
+    selectedShapeId,
+    selectedTextBox,
+    selectedTextId,
+    undo,
+  ]);
+
+  useEffect(() => {
     if (!readAuthSession()) {
       window.location.replace("/signin");
     }
@@ -1027,13 +1389,7 @@ function EditorPageContent() {
 
         if (cloudDesign.canvas_data && typeof cloudDesign.canvas_data === "object") {
           const syncedDoc = sanitizeStoredEditorDoc(cloudDesign.canvas_data as Partial<StoredEditorDoc>, width, height, fallbackDoc);
-          setPages(syncedDoc.pages);
-          setActivePageId(syncedDoc.activePageId);
-          setSelectedTextId(syncedDoc.selectedTextId);
-          setSelectedImageId(syncedDoc.selectedImageId);
-          setSelectedShapeId(syncedDoc.selectedShapeId);
-          setCustomFonts(syncedDoc.customFonts);
-          setUploadedFonts(syncedDoc.uploadedFonts);
+          applyStoredDoc(syncedDoc, { resetHistory: true });
         }
       } catch (error) {
         if (isCancelled) return;
@@ -1050,7 +1406,7 @@ function EditorPageContent() {
     return () => {
       isCancelled = true;
     };
-  }, [fallbackDoc, height, isHydrated, preset, width]);
+  }, [applyStoredDoc, fallbackDoc, height, isHydrated, preset, width]);
 
   useEffect(() => {
     const session = readAuthSession();
@@ -1150,6 +1506,43 @@ function EditorPageContent() {
   }, [uploadedFonts]);
 
   useEffect(() => {
+    const snapshot = cloneStoredDoc(currentDoc);
+    const snapshotKey = JSON.stringify(snapshot);
+
+    if (!historyReadyRef.current) {
+      historyReadyRef.current = true;
+      previousSnapshotRef.current = snapshot;
+      previousSnapshotKeyRef.current = snapshotKey;
+      updateHistoryAvailability();
+      return;
+    }
+
+    if (snapshotKey === previousSnapshotKeyRef.current) {
+      return;
+    }
+
+    if (skipHistoryPushRef.current) {
+      skipHistoryPushRef.current = false;
+      previousSnapshotRef.current = snapshot;
+      previousSnapshotKeyRef.current = snapshotKey;
+      updateHistoryAvailability();
+      return;
+    }
+
+    if (previousSnapshotRef.current) {
+      undoStackRef.current.push(cloneStoredDoc(previousSnapshotRef.current));
+      if (undoStackRef.current.length > HISTORY_LIMIT) {
+        undoStackRef.current.shift();
+      }
+      redoStackRef.current = [];
+    }
+
+    previousSnapshotRef.current = snapshot;
+    previousSnapshotKeyRef.current = snapshotKey;
+    updateHistoryAvailability();
+  }, [currentDoc, updateHistoryAvailability]);
+
+  useEffect(() => {
     window.localStorage.setItem(getDocStorageKey(preset, width, height), JSON.stringify(currentDoc));
   }, [currentDoc, height, preset, width]);
 
@@ -1166,11 +1559,26 @@ function EditorPageContent() {
             <p className="text-xs text-slate-500">
               {visiblePages.length} page{visiblePages.length > 1 ? "s" : ""}
             </p>
-            {exportError && <p className="text-xs text-rose-600">{exportError}</p>}
-            {cloudSyncError && <p className="text-xs text-amber-700">{cloudSyncError}</p>}
-            {!cloudSyncError && cloudDesignId && <p className="text-xs text-emerald-700">Cloud sync is active.</p>}
           </div>
           <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
+            <button
+              type="button"
+              onClick={undo}
+              disabled={!canUndo}
+              className="hidden min-h-10 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 sm:inline-flex sm:text-sm"
+              title="Undo (Ctrl/Cmd+Z)"
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              onClick={redo}
+              disabled={!canRedo}
+              className="hidden min-h-10 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40 sm:inline-flex sm:text-sm"
+              title="Redo (Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y)"
+            >
+              Redo
+            </button>
             <button
               type="button"
               onClick={addTextBox}
@@ -1968,32 +2376,23 @@ function EditorPageContent() {
                     showGrid={visibleActivePage.showGrid}
                     imageBoxes={visibleActivePage.imageBoxes}
                     selectedImageId={isHydrated ? selectedImageId : null}
-                    onSelectImage={(id) => {
-                      setSelectedImageId(id);
-                      if (id) {
-                        setSelectedTextId(null);
-                        setSelectedShapeId(null);
-                      }
+                    selectedImageIds={isHydrated ? selectedImageIdsForCanvas : []}
+                    onSelectImage={(id, options) => {
+                      applySelection("image", id, options);
                     }}
                     onUpdateImageBox={updateImageBox}
                     shapeBoxes={visibleActivePage.shapeBoxes}
                     selectedShapeId={isHydrated ? selectedShapeId : null}
-                    onSelectShape={(id) => {
-                      setSelectedShapeId(id);
-                      if (id) {
-                        setSelectedTextId(null);
-                        setSelectedImageId(null);
-                      }
+                    selectedShapeIds={isHydrated ? selectedShapeIdsForCanvas : []}
+                    onSelectShape={(id, options) => {
+                      applySelection("shape", id, options);
                     }}
                     onUpdateShapeBox={updateShapeBox}
                     textBoxes={visibleActivePage.textBoxes}
                     selectedTextId={isHydrated ? selectedTextId : null}
-                    onSelectText={(id) => {
-                      setSelectedTextId(id);
-                      if (id) {
-                        setSelectedImageId(null);
-                        setSelectedShapeId(null);
-                      }
+                    selectedTextIds={isHydrated ? selectedTextIdsForCanvas : []}
+                    onSelectText={(id, options) => {
+                      applySelection("text", id, options);
                     }}
                     onUpdateTextBox={updateTextBox}
                   />
