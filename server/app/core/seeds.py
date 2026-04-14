@@ -27,7 +27,6 @@ async def seed_admin_user(db: AsyncSession):
                 email=admin_email,
                 name="System Administrator",
                 password_hash=get_password_hash(admin_password),
-                is_active=True,
                 is_admin=True
             )
             
