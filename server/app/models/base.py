@@ -23,11 +23,16 @@ async def initialize_schema():
 
         # Ensure all models are registered on Base.metadata before create_all.
         from app import models  # noqa: F401
+        from app.core.seeds import seed_admin_user
 
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login TIMESTAMPTZ NULL"))
             await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE"))
+        
+        # Seed admin user using a fresh session
+        async with AsyncSessionLocal() as session:
+            await seed_admin_user(session)
 
         _schema_ready = True
 
