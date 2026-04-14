@@ -6,11 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "build:vercel": "npm run build && node scripts/ensure-vercel-output.mjs",
+    "fonts:sync": "node scripts/generate-local-fonts.mjs",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
     "jspdf": "^4.2.1",
+    "lucide-react": "^1.8.0",
     "next": "16.2.3",
     "react": "19.2.4",
     "react-dom": "19.2.4"

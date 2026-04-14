@@ -19,6 +19,7 @@ class UserResponse(BaseModel):
     id: UUID
     email: str
     name: Optional[str]
+    is_admin: bool = False
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
     last_login: Optional[datetime]

@@ -234,6 +234,10 @@ export default function DesignCanvas({
     if (!dragState || resizeState || rotateState || imageDragState || imageResizeState || shapeDragState || shapeResizeState || shapeRotateState) return;
 
     const handleMouseMove = (event: MouseEvent) => {
+      if (event.buttons === 0) {
+        setDragState(null);
+        return;
+      }
       const deltaX = (event.clientX - dragState.startClientX) / zoomScale;
       const deltaY = (event.clientY - dragState.startClientY) / zoomScale;
 
@@ -277,6 +281,10 @@ export default function DesignCanvas({
     const MIN_HEIGHT = 48;
 
     const handleMouseMove = (event: MouseEvent) => {
+      if (event.buttons === 0) {
+        setResizeState(null);
+        return;
+      }
       const deltaX = (event.clientX - resizeState.startClientX) / zoomScale;
       const deltaY = (event.clientY - resizeState.startClientY) / zoomScale;
 
@@ -317,6 +325,10 @@ export default function DesignCanvas({
     if (!rotateState || shapeRotateState) return;
 
     const handleMouseMove = (event: MouseEvent) => {
+      if (event.buttons === 0) {
+        setRotateState(null);
+        return;
+      }
       const angleDeg = (Math.atan2(event.clientY - rotateState.centerY, event.clientX - rotateState.centerX) * 180) / Math.PI;
       const rotation = normalizeAngle(angleDeg + 90);
       onUpdateTextBox(rotateState.id, { rotation });
@@ -338,6 +350,10 @@ export default function DesignCanvas({
     if (!imageDragState || imageResizeState || dragState || resizeState || rotateState || shapeDragState || shapeResizeState || shapeRotateState) return;
 
     const handleMouseMove = (event: MouseEvent) => {
+      if (event.buttons === 0) {
+        setImageDragState(null);
+        return;
+      }
       const deltaX = (event.clientX - imageDragState.startClientX) / zoomScale;
       const deltaY = (event.clientY - imageDragState.startClientY) / zoomScale;
 
@@ -381,6 +397,10 @@ export default function DesignCanvas({
     const MIN_HEIGHT = 40;
 
     const handleMouseMove = (event: MouseEvent) => {
+      if (event.buttons === 0) {
+        setImageResizeState(null);
+        return;
+      }
       const deltaX = (event.clientX - imageResizeState.startClientX) / zoomScale;
       const deltaY = (event.clientY - imageResizeState.startClientY) / zoomScale;
 
@@ -422,6 +442,10 @@ export default function DesignCanvas({
     if (!shapeDragState || shapeResizeState || shapeRotateState || dragState || resizeState || rotateState || imageDragState || imageResizeState) return;
 
     const handleMouseMove = (event: MouseEvent) => {
+      if (event.buttons === 0) {
+        setShapeDragState(null);
+        return;
+      }
       const deltaX = (event.clientX - shapeDragState.startClientX) / zoomScale;
       const deltaY = (event.clientY - shapeDragState.startClientY) / zoomScale;
 
@@ -465,6 +489,10 @@ export default function DesignCanvas({
     const MIN_HEIGHT = 40;
 
     const handleMouseMove = (event: MouseEvent) => {
+      if (event.buttons === 0) {
+        setShapeResizeState(null);
+        return;
+      }
       const deltaX = (event.clientX - shapeResizeState.startClientX) / zoomScale;
       const deltaY = (event.clientY - shapeResizeState.startClientY) / zoomScale;
 
@@ -506,6 +534,10 @@ export default function DesignCanvas({
     if (!shapeRotateState || rotateState) return;
 
     const handleMouseMove = (event: MouseEvent) => {
+      if (event.buttons === 0) {
+        setShapeRotateState(null);
+        return;
+      }
       const angleDeg = (Math.atan2(event.clientY - shapeRotateState.centerY, event.clientX - shapeRotateState.centerX) * 180) / Math.PI;
       const rotation = normalizeAngle(angleDeg + 90);
       onUpdateShapeBox(shapeRotateState.id, { rotation });
@@ -523,6 +555,24 @@ export default function DesignCanvas({
     };
   }, [onUpdateShapeBox, rotateState, shapeRotateState]);
 
+  useEffect(() => {
+    const releaseAllInteractions = () => {
+      setDragState(null);
+      setResizeState(null);
+      setRotateState(null);
+      setImageDragState(null);
+      setImageResizeState(null);
+      setShapeDragState(null);
+      setShapeResizeState(null);
+      setShapeRotateState(null);
+    };
+
+    window.addEventListener("blur", releaseAllInteractions);
+    return () => {
+      window.removeEventListener("blur", releaseAllInteractions);
+    };
+  }, []);
+
   return (
     <div
       id="design-canvas"
@@ -530,6 +580,7 @@ export default function DesignCanvas({
       className="relative mx-auto overflow-hidden border border-slate-200 bg-white shadow-2xl shadow-slate-300/60"
       style={{ width, height, backgroundColor, backgroundImage: pageBackgroundImage }}
       onMouseDown={(event) => {
+        if (event.button !== 0) return;
         if (event.target === canvasRef.current) {
           commitEditingDraft();
           onSelectText(null);
@@ -583,6 +634,7 @@ export default function DesignCanvas({
               zIndex: Math.round(toFiniteNumber(image.layer ?? 0, 0)),
             }}
             onMouseDown={(event) => {
+              if (event.button !== 0) return;
               event.stopPropagation();
               event.preventDefault();
               onSelectImage(image.id, { multi: event.ctrlKey || event.metaKey });
@@ -616,6 +668,7 @@ export default function DesignCanvas({
                 aria-label="Resize image"
                 className="absolute bottom-0 right-0 h-3 w-3 translate-x-1/2 translate-y-1/2 cursor-se-resize rounded-sm border border-white bg-sky-500 shadow"
                 onMouseDown={(event) => {
+                  if (event.button !== 0) return;
                   event.stopPropagation();
                   event.preventDefault();
                   setImageResizeState({
@@ -677,6 +730,7 @@ export default function DesignCanvas({
               zIndex: Math.round(toFiniteNumber(shape.layer ?? 0, 0)),
             }}
             onMouseDown={(event) => {
+              if (event.button !== 0) return;
               event.stopPropagation();
               event.preventDefault();
               onSelectShape(shape.id, { multi: event.ctrlKey || event.metaKey });
@@ -755,6 +809,7 @@ export default function DesignCanvas({
                 aria-label="Resize shape"
                 className="absolute bottom-0 right-0 h-3 w-3 translate-x-1/2 translate-y-1/2 cursor-se-resize rounded-sm border border-white bg-sky-500 shadow"
                 onMouseDown={(event) => {
+                  if (event.button !== 0) return;
                   event.stopPropagation();
                   event.preventDefault();
                   setShapeResizeState({
@@ -785,6 +840,7 @@ export default function DesignCanvas({
                   aria-label="Rotate shape"
                   className="absolute left-1/2 top-0 h-3.5 w-3.5 -translate-x-1/2 -translate-y-[150%] cursor-grab rounded-full border border-white bg-sky-500 shadow active:cursor-grabbing"
                   onMouseDown={(event) => {
+                    if (event.button !== 0) return;
                     event.stopPropagation();
 
                     const rect = event.currentTarget.parentElement?.getBoundingClientRect();
@@ -845,6 +901,7 @@ export default function DesignCanvas({
               zIndex: Math.round(toFiniteNumber(box.layer ?? 0, 0)),
             }}
             onMouseDown={(event) => {
+              if (event.button !== 0) return;
               event.stopPropagation();
               onSelectText(box.id, { multi: event.ctrlKey || event.metaKey });
 
@@ -891,7 +948,7 @@ export default function DesignCanvas({
                   }
                 }}
                 rows={3}
-                className="h-full w-full resize-none rounded border border-sky-300 bg-white/90 p-0 outline-none ring-sky-300 focus:ring"
+                className="h-full w-full resize-none rounded border border-sky-300 bg-transparent p-0 outline-none ring-sky-300 focus:ring"
                 style={{
                   fontFamily: toFontFamilyCss(boxFontFamily),
                   fontSize: boxFontSize,
@@ -924,6 +981,7 @@ export default function DesignCanvas({
                 aria-label="Resize text box"
                 className="absolute bottom-0 right-0 h-3 w-3 translate-x-1/2 translate-y-1/2 cursor-se-resize rounded-sm border border-white bg-sky-500 shadow"
                 onMouseDown={(event) => {
+                  if (event.button !== 0) return;
                   event.stopPropagation();
                   setResizeState({
                     id: box.id,
@@ -953,6 +1011,7 @@ export default function DesignCanvas({
                   aria-label="Rotate text box"
                   className="absolute left-1/2 top-0 h-3.5 w-3.5 -translate-x-1/2 -translate-y-[150%] cursor-grab rounded-full border border-white bg-sky-500 shadow active:cursor-grabbing"
                   onMouseDown={(event) => {
+                    if (event.button !== 0) return;
                     event.stopPropagation();
 
                     const rect = event.currentTarget.parentElement?.getBoundingClientRect();

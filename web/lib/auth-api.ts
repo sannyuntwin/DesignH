@@ -2,6 +2,7 @@ export type ApiUser = {
   id: string;
   email: string;
   name: string | null;
+  is_admin?: boolean;
   created_at?: string;
   updated_at?: string;
   last_login?: string | null;
@@ -51,4 +52,3 @@ export function registerWithPassword(name: string, email: string, password: stri
 export function loginWithGoogleIdToken(idToken: string) {
   return postJson<AuthResponse>("/api/auth/google", { id_token: idToken });
 }
-

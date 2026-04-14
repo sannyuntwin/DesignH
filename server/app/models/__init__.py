@@ -5,6 +5,7 @@ from app.models.comment import Comment
 from app.models.version import Version
 from app.models.collaboration import Collaboration
 from app.models.export_job import ExportJob
+from app.models.audit_log import AuditLog
 
 __all__ = [
     "User",
@@ -14,4 +15,5 @@ __all__ = [
     "Version",
     "Collaboration",
     "ExportJob",
+    "AuditLog",
 ]

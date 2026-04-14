@@ -6,8 +6,11 @@ import { useSearchParams } from "next/navigation";
 import DesignCanvas, { CanvasImageBox, CanvasShapeBox, CanvasShapeKind, CanvasTextBox } from "@/components/editor/DesignCanvas";
 import { readAuthSession } from "@/lib/auth-session";
 import { DEFAULT_PAGE, Orientation, PAGE_PREF_KEY, SavedPagePreference, parseDimension } from "@/lib/page-sizes";
+import { getEditorTemplate } from "@/lib/editor-templates";
+import { updateProjectConfig, upsertProject } from "@/lib/projects";
 import { exportDesignAsImage, exportDesignAsPdf } from "@/lib/design-export";
 import { createDesign, listDesigns, updateDesign } from "@/lib/designs-api";
+import { LOCAL_FONT_FACES, LOCAL_FONT_FAMILIES } from "@/lib/local-fonts";
 
 type CanvasPage = {
   id: string;
@@ -35,11 +38,13 @@ const EDITOR_DOC_INDEXEDDB_NAME = "design-editor-docs-v1";
 const EDITOR_DOC_INDEXEDDB_STORE = "docs";
 const CLOUD_DOC_NAME_PREFIX = "design-editor-cloud-v1";
 const HISTORY_LIMIT = 80;
+const LOCAL_STORAGE_AUTOSAVE_DEBOUNCE_MS = 300;
+const INDEXEDDB_AUTOSAVE_DEBOUNCE_MS = 600;
 const DEFAULT_GRADIENT_COLORS = ["#f8fafc", "#e2e8f0", "#cbd5e1"] as const;
 const DEFAULT_BORDER_GRADIENT_COLORS = ["#0f172a", "#475569", "#0f172a"] as const;
 const DEFAULT_SHAPE_GRADIENT_COLORS = ["#38bdf8", "#22d3ee", "#818cf8"] as const;
 const SHAPE_KIND_OPTIONS: readonly CanvasShapeKind[] = ["square", "circle", "triangle"];
-const FONT_FAMILY_OPTIONS = [
+const BASE_FONT_FAMILY_OPTIONS = [
   "Arial",
   "Georgia",
   "Times New Roman",
@@ -49,6 +54,7 @@ const FONT_FAMILY_OPTIONS = [
   "Courier New",
   "Impact",
 ] as const;
+const FONT_FAMILY_OPTIONS = mergeFontOptions(BASE_FONT_FAMILY_OPTIONS, LOCAL_FONT_FAMILIES);
 const DEFAULT_TEXT_LINE_HEIGHT = 1.25;
 type UploadedFontFormat = "woff2" | "woff" | "truetype" | "opentype";
 type UploadedFont = {
@@ -100,12 +106,40 @@ function toSafeNumber(value: unknown, fallback: number) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function getDocStorageKey(preset: string, width: number, height: number) {
-  return `${EDITOR_DOC_KEY_PREFIX}:${preset}:${width}x${height}`;
+function applyPartialUpdates<T extends object>(source: T, updates: Partial<T>): T | null {
+  let changed = false;
+  const next = { ...source } as T;
+
+  for (const key of Object.keys(updates) as (keyof T)[]) {
+    const nextValue = updates[key];
+    if (!Object.is((source as Record<string, unknown>)[key as string], nextValue)) {
+      (next as Record<string, unknown>)[key as string] = nextValue as unknown;
+      changed = true;
+    }
+  }
+
+  return changed ? next : null;
 }
 
-function getCloudDocName(preset: string, width: number, height: number) {
-  return `${CLOUD_DOC_NAME_PREFIX}:${preset}:${width}x${height}`;
+function toStorageScope(value: string) {
+  const normalized = value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || "default";
+}
+
+function getProjectPreferenceKey(projectId: string) {
+  return projectId ? `${PAGE_PREF_KEY}:${projectId}` : PAGE_PREF_KEY;
+}
+
+function getDocStorageKey(projectScope: string, preset: string, width: number, height: number) {
+  return `${EDITOR_DOC_KEY_PREFIX}:${projectScope}:${preset}:${width}x${height}`;
+}
+
+function getCloudDocName(projectScope: string, preset: string, width: number, height: number) {
+  return `${CLOUD_DOC_NAME_PREFIX}:${projectScope}:${preset}:${width}x${height}`;
 }
 
 function sanitizeHexColor(value: unknown, fallback: string) {
@@ -352,20 +386,23 @@ type StoredEditorDoc = {
   uploadedFonts: UploadedFont[];
 };
 
-function createFallbackEditorDoc(width: number, height: number): StoredEditorDoc {
+function createFallbackEditorDoc(width: number, height: number, templateId?: string | null): StoredEditorDoc {
+  const selectedTemplate = getEditorTemplate(templateId || null);
   const fallbackPage: CanvasPage = {
     id: "p_initial",
     width,
     height,
-    backgroundColor: "#ffffff",
-    gradientEnabled: false,
-    gradientDirection: "vertical",
-    gradientColors: [...DEFAULT_GRADIENT_COLORS],
-    borderWidth: 0,
-    borderColor: "#0f172a",
-    borderGradientEnabled: false,
-    borderGradientDirection: "vertical",
-    borderGradientColors: [...DEFAULT_BORDER_GRADIENT_COLORS],
+    backgroundColor: selectedTemplate?.backgroundColor || "#ffffff",
+    gradientEnabled: selectedTemplate?.gradientEnabled ?? false,
+    gradientDirection: selectedTemplate?.gradientDirection || "vertical",
+    gradientColors: selectedTemplate?.gradientColors ? [...selectedTemplate.gradientColors] : [...DEFAULT_GRADIENT_COLORS],
+    borderWidth: selectedTemplate?.borderWidth ?? 0,
+    borderColor: selectedTemplate?.borderColor || "#0f172a",
+    borderGradientEnabled: selectedTemplate?.borderGradientEnabled ?? false,
+    borderGradientDirection: selectedTemplate?.borderGradientDirection || "vertical",
+    borderGradientColors: selectedTemplate?.borderGradientColors
+      ? [...selectedTemplate.borderGradientColors]
+      : [...DEFAULT_BORDER_GRADIENT_COLORS],
     showGrid: true,
     imageBoxes: [],
     shapeBoxes: [],
@@ -405,15 +442,21 @@ function sanitizeStoredEditorDoc(input: Partial<StoredEditorDoc>, width: number,
   return { pages, activePageId, selectedTextId, selectedImageId, selectedShapeId, customFonts, uploadedFonts };
 }
 
-function loadInitialEditorDoc(preset: string, width: number, height: number): StoredEditorDoc {
-  const fallback = createFallbackEditorDoc(width, height);
+function loadInitialEditorDoc(
+  projectScope: string,
+  preset: string,
+  width: number,
+  height: number,
+  templateId?: string | null,
+): StoredEditorDoc {
+  const fallback = createFallbackEditorDoc(width, height, templateId);
 
   if (typeof window === "undefined") {
     return fallback;
   }
 
   try {
-    const raw = window.localStorage.getItem(getDocStorageKey(preset, width, height));
+    const raw = window.localStorage.getItem(getDocStorageKey(projectScope, preset, width, height));
     if (!raw) {
       return fallback;
     }
@@ -447,8 +490,10 @@ async function readEditorDocFromIndexedDb(storageKey: string): Promise<StoredEdi
   let db: IDBDatabase | null = null;
   try {
     db = await openEditorDocDatabase();
+    const activeDb = db;
+    if (!activeDb) return null;
     const rawValue = await new Promise<unknown>((resolve, reject) => {
-      const transaction = db.transaction(EDITOR_DOC_INDEXEDDB_STORE, "readonly");
+      const transaction = activeDb.transaction(EDITOR_DOC_INDEXEDDB_STORE, "readonly");
       const store = transaction.objectStore(EDITOR_DOC_INDEXEDDB_STORE);
       const request = store.get(storageKey);
 
@@ -471,8 +516,10 @@ async function writeEditorDocToIndexedDb(storageKey: string, payload: string): P
   let db: IDBDatabase | null = null;
   try {
     db = await openEditorDocDatabase();
+    const activeDb = db;
+    if (!activeDb) return;
     await new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(EDITOR_DOC_INDEXEDDB_STORE, "readwrite");
+      const transaction = activeDb.transaction(EDITOR_DOC_INDEXEDDB_STORE, "readwrite");
       const store = transaction.objectStore(EDITOR_DOC_INDEXEDDB_STORE);
       const request = store.put(payload, storageKey);
 
@@ -515,14 +562,21 @@ function pruneEditorDocCache(currentKey: string) {
 function EditorPageContent() {
   const searchParams = useSearchParams();
 
+  const projectId = searchParams.get("projectId") || "";
+  const projectName = searchParams.get("projectName") || "";
+  const templateId = searchParams.get("template");
   const label = searchParams.get("label") || DEFAULT_PAGE.label;
   const width = parseDimension(searchParams.get("w"), DEFAULT_PAGE.width);
   const height = parseDimension(searchParams.get("h"), DEFAULT_PAGE.height);
   const orientation: Orientation = searchParams.get("o") === "landscape" ? "landscape" : "portrait";
   const preset = searchParams.get("preset") || "custom";
+  const projectScope = useMemo(
+    () => toStorageScope(projectId || projectName || label || `${preset}-${width}x${height}`),
+    [height, label, preset, projectId, projectName, width],
+  );
 
-  const fallbackDoc = useMemo(() => createFallbackEditorDoc(width, height), [height, width]);
-  const [initialDoc] = useState<StoredEditorDoc>(() => loadInitialEditorDoc(preset, width, height));
+  const fallbackDoc = useMemo(() => createFallbackEditorDoc(width, height, templateId), [height, templateId, width]);
+  const [initialDoc] = useState<StoredEditorDoc>(() => loadInitialEditorDoc(projectScope, preset, width, height, templateId));
   const [pages, setPages] = useState<CanvasPage[]>(initialDoc.pages);
   const [activePageId, setActivePageId] = useState<string>(initialDoc.activePageId);
   const [draggedPageId, setDraggedPageId] = useState<string | null>(null);
@@ -537,6 +591,7 @@ function EditorPageContent() {
   const [customFonts, setCustomFonts] = useState<string[]>(initialDoc.customFonts);
   const [uploadedFonts, setUploadedFonts] = useState<UploadedFont[]>(initialDoc.uploadedFonts);
   const [fontInputValue, setFontInputValue] = useState("");
+  const [fontManageValue, setFontManageValue] = useState("");
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [, setCloudSyncError] = useState<string | null>(null);
@@ -584,6 +639,11 @@ function EditorPageContent() {
     }),
     [activePageId, customFonts, pages, selectedImageId, selectedShapeId, selectedTextId, uploadedFonts],
   );
+  const serializedCurrentDoc = useMemo(() => JSON.stringify(currentDoc), [currentDoc]);
+  const currentDocRef = useRef(currentDoc);
+  useEffect(() => {
+    currentDocRef.current = currentDoc;
+  }, [currentDoc]);
 
   const activePage = useMemo<CanvasPage>(() => {
     return (
@@ -755,7 +815,7 @@ function EditorPageContent() {
 
     hasHydratedFromIndexedDbRef.current = true;
     let cancelled = false;
-    const storageKey = getDocStorageKey(preset, width, height);
+    const storageKey = getDocStorageKey(projectScope, preset, width, height);
 
     const hydrateFromIndexedDb = async () => {
       const cachedDoc = await readEditorDocFromIndexedDb(storageKey);
@@ -767,33 +827,33 @@ function EditorPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [applyStoredDoc, height, isHydrated, preset, width]);
+  }, [applyStoredDoc, height, isHydrated, preset, projectScope, width]);
 
   const undo = useCallback(() => {
     const previous = undoStackRef.current.pop();
     if (!previous) return;
 
-    redoStackRef.current.push(cloneStoredDoc(currentDoc));
+    redoStackRef.current.push(cloneStoredDoc(currentDocRef.current));
     if (redoStackRef.current.length > HISTORY_LIMIT) {
       redoStackRef.current.shift();
     }
 
     updateHistoryAvailability();
     applyStoredDoc(previous, { skipHistoryPush: true });
-  }, [applyStoredDoc, currentDoc, updateHistoryAvailability]);
+  }, [applyStoredDoc, updateHistoryAvailability]);
 
   const redo = useCallback(() => {
     const next = redoStackRef.current.pop();
     if (!next) return;
 
-    undoStackRef.current.push(cloneStoredDoc(currentDoc));
+    undoStackRef.current.push(cloneStoredDoc(currentDocRef.current));
     if (undoStackRef.current.length > HISTORY_LIMIT) {
       undoStackRef.current.shift();
     }
 
     updateHistoryAvailability();
     applyStoredDoc(next, { skipHistoryPush: true });
-  }, [applyStoredDoc, currentDoc, updateHistoryAvailability]);
+  }, [applyStoredDoc, updateHistoryAvailability]);
 
   const visiblePages = isHydrated ? pages : fallbackDoc.pages;
   const visibleActivePageId = isHydrated ? activePageId : fallbackDoc.activePageId;
@@ -822,11 +882,23 @@ function EditorPageContent() {
   const visibleSelectedTextBox = isHydrated ? selectedTextBox : null;
   const visibleSelectedImageBox = isHydrated ? selectedImageBox : null;
   const visibleSelectedShapeBox = isHydrated ? selectedShapeBox : null;
+  const selectedFontFamily = selectedTextBox?.fontFamily || FONT_FAMILY_OPTIONS[0];
+  const selectedFontKey = normalizeFontFamilyKey(selectedFontFamily);
+  const isSelectedCustomFont = customFonts.some((font) => normalizeFontFamilyKey(font) === selectedFontKey);
+  const isSelectedUploadedFont = uploadedFonts.some((font) => normalizeFontFamilyKey(font.family) === selectedFontKey);
+  const canManageSelectedFont = Boolean(selectedTextBox) && (isSelectedCustomFont || isSelectedUploadedFont);
   const fontOptions = useMemo(() => {
     const fontsFromPages = pages.flatMap((page) => page.textBoxes.map((box) => box.fontFamily || ""));
     const uploadedFamilies = uploadedFonts.map((font) => font.family);
     return mergeFontOptions(FONT_FAMILY_OPTIONS, customFonts, uploadedFamilies, fontsFromPages);
   }, [customFonts, pages, uploadedFonts]);
+  useEffect(() => {
+    if (!selectedTextBox) {
+      setFontManageValue("");
+      return;
+    }
+    setFontManageValue(selectedFontFamily);
+  }, [selectedFontFamily, selectedTextBox]);
   const zoomScale = zoomPercent / 100;
   const filenameBase = useMemo(() => {
     const slug = label
@@ -1059,16 +1131,26 @@ function EditorPageContent() {
   };
 
   const updateImageBox = (imageId: string, updates: Partial<CanvasImageBox>) => {
-    setPages((prev) =>
-      prev.map((page) =>
-        page.id === activePage.id
-          ? {
-              ...page,
-              imageBoxes: page.imageBoxes.map((box) => (box.id === imageId ? { ...box, ...updates } : box)),
-            }
-          : page,
-      ),
-    );
+    if (Object.keys(updates).length === 0) return;
+
+    setPages((prev) => {
+      const pageIndex = prev.findIndex((page) => page.id === activePage.id);
+      if (pageIndex < 0) return prev;
+
+      const page = prev[pageIndex];
+      const boxIndex = page.imageBoxes.findIndex((box) => box.id === imageId);
+      if (boxIndex < 0) return prev;
+
+      const nextBox = applyPartialUpdates(page.imageBoxes[boxIndex], updates);
+      if (!nextBox) return prev;
+
+      const nextImageBoxes = [...page.imageBoxes];
+      nextImageBoxes[boxIndex] = nextBox;
+
+      const nextPages = [...prev];
+      nextPages[pageIndex] = { ...page, imageBoxes: nextImageBoxes };
+      return nextPages;
+    });
   };
 
   const updateSelectedImageBox = (updates: Partial<CanvasImageBox>) => {
@@ -1077,16 +1159,26 @@ function EditorPageContent() {
   };
 
   const updateShapeBox = (shapeId: string, updates: Partial<CanvasShapeBox>) => {
-    setPages((prev) =>
-      prev.map((page) =>
-        page.id === activePage.id
-          ? {
-              ...page,
-              shapeBoxes: page.shapeBoxes.map((box) => (box.id === shapeId ? { ...box, ...updates } : box)),
-            }
-          : page,
-      ),
-    );
+    if (Object.keys(updates).length === 0) return;
+
+    setPages((prev) => {
+      const pageIndex = prev.findIndex((page) => page.id === activePage.id);
+      if (pageIndex < 0) return prev;
+
+      const page = prev[pageIndex];
+      const boxIndex = page.shapeBoxes.findIndex((box) => box.id === shapeId);
+      if (boxIndex < 0) return prev;
+
+      const nextBox = applyPartialUpdates(page.shapeBoxes[boxIndex], updates);
+      if (!nextBox) return prev;
+
+      const nextShapeBoxes = [...page.shapeBoxes];
+      nextShapeBoxes[boxIndex] = nextBox;
+
+      const nextPages = [...prev];
+      nextPages[pageIndex] = { ...page, shapeBoxes: nextShapeBoxes };
+      return nextPages;
+    });
   };
 
   const updateSelectedShapeBox = (updates: Partial<CanvasShapeBox>) => {
@@ -1188,16 +1280,26 @@ function EditorPageContent() {
   };
 
   const updateTextBox = (textId: string, updates: Partial<CanvasTextBox>) => {
-    setPages((prev) =>
-      prev.map((page) =>
-        page.id === activePage.id
-          ? {
-              ...page,
-              textBoxes: page.textBoxes.map((box) => (box.id === textId ? { ...box, ...updates } : box)),
-            }
-          : page,
-      ),
-    );
+    if (Object.keys(updates).length === 0) return;
+
+    setPages((prev) => {
+      const pageIndex = prev.findIndex((page) => page.id === activePage.id);
+      if (pageIndex < 0) return prev;
+
+      const page = prev[pageIndex];
+      const boxIndex = page.textBoxes.findIndex((box) => box.id === textId);
+      if (boxIndex < 0) return prev;
+
+      const nextBox = applyPartialUpdates(page.textBoxes[boxIndex], updates);
+      if (!nextBox) return prev;
+
+      const nextTextBoxes = [...page.textBoxes];
+      nextTextBoxes[boxIndex] = nextBox;
+
+      const nextPages = [...prev];
+      nextPages[pageIndex] = { ...page, textBoxes: nextTextBoxes };
+      return nextPages;
+    });
   };
 
   const updateSelectedTextBox = (updates: Partial<CanvasTextBox>) => {
@@ -1206,13 +1308,82 @@ function EditorPageContent() {
   };
 
   const applySelectedFontFamily = (family: string) => {
-    const normalized = family.trim().toLowerCase();
-    const isUploaded = uploadedFonts.some((font) => font.family.toLowerCase() === normalized);
-    if (isUploaded) {
-      updateSelectedTextBox({ fontFamily: family, fontWeight: "400" });
+    updateSelectedTextBox({ fontFamily: family });
+  };
+
+  const replaceFontFamilyInDesign = (fromFamily: string, toFamily: string) => {
+    const fromKey = normalizeFontFamilyKey(fromFamily);
+    if (!fromKey) return;
+
+    setPages((prev) =>
+      prev.map((page) => ({
+        ...page,
+        textBoxes: page.textBoxes.map((box) =>
+          normalizeFontFamilyKey(box.fontFamily || FONT_FAMILY_OPTIONS[0]) === fromKey ? { ...box, fontFamily: toFamily } : box,
+        ),
+      })),
+    );
+  };
+
+  const renameSelectedUserFont = () => {
+    if (!selectedTextBox || !canManageSelectedFont) return;
+
+    const currentFamily = selectedTextBox.fontFamily || FONT_FAMILY_OPTIONS[0];
+    const currentKey = normalizeFontFamilyKey(currentFamily);
+    const nextFamily = sanitizeFontName(fontManageValue);
+    if (!nextFamily) return;
+
+    const nextKey = normalizeFontFamilyKey(nextFamily);
+    const hasConflict = fontOptions.some((font) => {
+      const key = normalizeFontFamilyKey(font);
+      return key === nextKey && key !== currentKey;
+    });
+
+    if (hasConflict) {
+      setExportError("A font with that name already exists.");
       return;
     }
-    updateSelectedTextBox({ fontFamily: family });
+
+    setExportError(null);
+    if (isSelectedUploadedFont) {
+      clearDocumentFontFamily(currentFamily);
+    }
+
+    setCustomFonts((prev) =>
+      mergeFontOptions(
+        prev.map((font) => (normalizeFontFamilyKey(font) === currentKey ? nextFamily : font)),
+      ),
+    );
+    setUploadedFonts((prev) =>
+      prev.map((font) =>
+        normalizeFontFamilyKey(font.family) === currentKey
+          ? {
+              ...font,
+              family: nextFamily,
+            }
+          : font,
+      ),
+    );
+    replaceFontFamilyInDesign(currentFamily, nextFamily);
+    setFontManageValue(nextFamily);
+  };
+
+  const removeSelectedUserFont = () => {
+    if (!selectedTextBox || !canManageSelectedFont) return;
+
+    const targetFamily = selectedTextBox.fontFamily || FONT_FAMILY_OPTIONS[0];
+    const targetKey = normalizeFontFamilyKey(targetFamily);
+    const fallbackFamily = FONT_FAMILY_OPTIONS[0];
+
+    if (isSelectedUploadedFont) {
+      clearDocumentFontFamily(targetFamily);
+    }
+
+    setExportError(null);
+    setCustomFonts((prev) => prev.filter((font) => normalizeFontFamilyKey(font) !== targetKey));
+    setUploadedFonts((prev) => prev.filter((font) => normalizeFontFamilyKey(font.family) !== targetKey));
+    replaceFontFamilyInDesign(targetFamily, fallbackFamily);
+    setFontManageValue(fallbackFamily);
   };
 
   const addCustomFont = () => {
@@ -1253,26 +1424,17 @@ function EditorPageContent() {
         clearDocumentFontFamily(familyFromFile);
         const formatHint = format ? ` format("${format}")` : "";
         const fontSet = (document as Document & { fonts: FontFaceSet }).fonts;
-        const regularFace = new FontFace(familyFromFile, `url(${source})${formatHint}`, {
+        const uploadedFace = new FontFace(familyFromFile, `url(${source})${formatHint}`, {
           style: "normal",
-          weight: "400",
         });
-        const boldFace = new FontFace(familyFromFile, `url(${source})${formatHint}`, {
-          style: "normal",
-          weight: "700",
-        });
-        await Promise.all([regularFace.load(), boldFace.load()]);
-        fontSet.add(regularFace);
-        fontSet.add(boldFace);
+        await uploadedFace.load();
+        fontSet.add(uploadedFace);
         const escapedFamily = escapeCssString(familyFromFile);
-        await Promise.all([
-          fontSet.load(`400 16px "${escapedFamily}"`).catch(() => []),
-          fontSet.load(`700 16px "${escapedFamily}"`).catch(() => []),
-        ]);
+        await fontSet.load(`16px "${escapedFamily}"`).catch(() => []);
       }
 
       if (selectedTextBox) {
-        updateSelectedTextBox({ fontFamily: familyFromFile, fontWeight: "400" });
+        updateSelectedTextBox({ fontFamily: familyFromFile });
       }
     } catch {
       setExportError("Unable to upload font.");
@@ -1298,7 +1460,20 @@ function EditorPageContent() {
   };
 
   const updateActivePage = (updates: Partial<CanvasPage>) => {
-    setPages((prev) => prev.map((page) => (page.id === activePage.id ? { ...page, ...updates } : page)));
+    if (Object.keys(updates).length === 0) return;
+
+    setPages((prev) => {
+      const pageIndex = prev.findIndex((page) => page.id === activePage.id);
+      if (pageIndex < 0) return prev;
+
+      const page = prev[pageIndex];
+      const nextPage = applyPartialUpdates(page, updates);
+      if (!nextPage) return prev;
+
+      const nextPages = [...prev];
+      nextPages[pageIndex] = nextPage;
+      return nextPages;
+    });
   };
 
   const handleDownloadImage = async (format: "png" | "jpg") => {
@@ -1513,7 +1688,7 @@ function EditorPageContent() {
     };
   }, [
     activePage,
-    currentDoc,
+    currentDocRef,
     copiedElement,
     multiSelectedImageIds,
     multiSelectedShapeIds,
@@ -1545,8 +1720,8 @@ function EditorPageContent() {
     setIsCloudSyncReady(false);
     setCloudDesignId(null);
 
-    const cloudDocName = getCloudDocName(preset, width, height);
-    const seedDoc = loadInitialEditorDoc(preset, width, height);
+    const cloudDocName = getCloudDocName(projectScope, preset, width, height);
+    const seedDoc = loadInitialEditorDoc(projectScope, preset, width, height, templateId);
 
     const loadCloudDoc = async () => {
       try {
@@ -1587,7 +1762,7 @@ function EditorPageContent() {
     return () => {
       isCancelled = true;
     };
-  }, [applyStoredDoc, fallbackDoc, height, isHydrated, preset, width]);
+  }, [applyStoredDoc, fallbackDoc, height, isHydrated, preset, projectScope, templateId, width]);
 
   useEffect(() => {
     const session = readAuthSession();
@@ -1595,7 +1770,7 @@ function EditorPageContent() {
       return;
     }
 
-    const cloudDocName = getCloudDocName(preset, width, height);
+    const cloudDocName = getCloudDocName(projectScope, preset, width, height);
     const timer = window.setTimeout(async () => {
       try {
         await updateDesign(session.token, cloudDesignId, {
@@ -1613,7 +1788,7 @@ function EditorPageContent() {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [cloudDesignId, currentDoc, height, isCloudSyncReady, isHydrated, preset, width]);
+  }, [cloudDesignId, currentDoc, height, isCloudSyncReady, isHydrated, preset, projectScope, width]);
 
   useEffect(() => {
     const handleMouseMove = (event: MouseEvent) => {
@@ -1663,8 +1838,24 @@ function EditorPageContent() {
       width,
       height,
     };
-    window.localStorage.setItem(PAGE_PREF_KEY, JSON.stringify(preference));
-  }, [height, label, orientation, preset, width]);
+    window.localStorage.setItem(getProjectPreferenceKey(projectId), JSON.stringify(preference));
+
+    if (projectId) {
+      upsertProject({
+        id: projectId,
+        name: projectName || label,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+      updateProjectConfig(projectId, {
+        width,
+        height,
+        orientation,
+        preset,
+        templateId: templateId || undefined,
+      });
+    }
+  }, [height, label, orientation, preset, projectId, projectName, templateId, width]);
 
   useEffect(() => {
     const styleId = "editor-uploaded-fonts-style";
@@ -1676,22 +1867,26 @@ function EditorPageContent() {
       document.head.appendChild(styleElement);
     }
 
-    styleElement.textContent = uploadedFonts
-      .map((font) => {
-        const family = escapeCssString(font.family);
-        const source = escapeCssString(font.source);
-        const format = font.format ? ` format("${font.format}")` : "";
-        return [
-          `@font-face{font-family:"${family}";src:url("${source}")${format};font-weight:400;font-style:normal;font-display:swap;}`,
-          `@font-face{font-family:"${family}";src:url("${source}")${format};font-weight:700;font-style:normal;font-display:swap;}`,
-        ].join("");
-      })
+    styleElement.textContent = LOCAL_FONT_FACES.map((font) => {
+      const family = escapeCssString(font.family);
+      const source = escapeCssString(font.source);
+      const format = font.format ? ` format("${font.format}")` : "";
+      return `@font-face{font-family:"${family}";src:url("${source}")${format};font-weight:${font.weight};font-style:normal;font-display:swap;}`;
+    })
+      .concat(
+        uploadedFonts.map((font) => {
+          const family = escapeCssString(font.family);
+          const source = escapeCssString(font.source);
+          const format = font.format ? ` format("${font.format}")` : "";
+          return `@font-face{font-family:"${family}";src:url("${source}")${format};font-style:normal;font-display:swap;}`;
+        }),
+      )
       .join("\n");
   }, [uploadedFonts]);
 
   useEffect(() => {
-    const snapshot = cloneStoredDoc(currentDoc);
-    const snapshotKey = JSON.stringify(snapshot);
+    const snapshot = JSON.parse(serializedCurrentDoc) as StoredEditorDoc;
+    const snapshotKey = serializedCurrentDoc;
 
     if (!historyReadyRef.current) {
       historyReadyRef.current = true;
@@ -1724,55 +1919,62 @@ function EditorPageContent() {
     previousSnapshotRef.current = snapshot;
     previousSnapshotKeyRef.current = snapshotKey;
     updateHistoryAvailability();
-  }, [currentDoc, updateHistoryAvailability]);
+  }, [serializedCurrentDoc, updateHistoryAvailability]);
 
   useEffect(() => {
     localAutosaveEnabledRef.current = true;
   }, [height, preset, width]);
 
   useEffect(() => {
-    if (!localAutosaveEnabledRef.current) return;
+    if (!isHydrated || !localAutosaveEnabledRef.current) return;
 
-    const storageKey = getDocStorageKey(preset, width, height);
-    const payload = JSON.stringify(currentDoc);
+    const storageKey = getDocStorageKey(projectScope, preset, width, height);
+    const payload = serializedCurrentDoc;
 
-    try {
-      window.localStorage.setItem(storageKey, payload);
-      return;
-    } catch (error) {
-      if (!isStorageQuotaExceeded(error)) {
-        console.warn("Local editor autosave failed.", error);
-        return;
-      }
-    }
-
-    try {
-      pruneEditorDocCache(storageKey);
-      window.localStorage.setItem(storageKey, payload);
-      return;
-    } catch (error) {
-      if (!isStorageQuotaExceeded(error)) {
-        console.warn("Local editor autosave failed after cache cleanup.", error);
-      }
-    }
-
-    localAutosaveEnabledRef.current = false;
-    console.warn("Local editor autosave disabled because browser storage quota is full.");
-  }, [currentDoc, height, preset, width]);
-
-  useEffect(() => {
-    const storageKey = getDocStorageKey(preset, width, height);
-    const payload = JSON.stringify(currentDoc);
     const timer = window.setTimeout(() => {
-      void writeEditorDocToIndexedDb(storageKey, payload).catch((error) => {
-        console.warn("IndexedDB design cache write failed.", error);
-      });
-    }, 180);
+      try {
+        window.localStorage.setItem(storageKey, payload);
+        return;
+      } catch (error) {
+        if (!isStorageQuotaExceeded(error)) {
+          console.warn("Local editor autosave failed.", error);
+          return;
+        }
+      }
+
+      try {
+        pruneEditorDocCache(storageKey);
+        window.localStorage.setItem(storageKey, payload);
+        return;
+      } catch (error) {
+        if (!isStorageQuotaExceeded(error)) {
+          console.warn("Local editor autosave failed after cache cleanup.", error);
+        }
+      }
+
+      localAutosaveEnabledRef.current = false;
+      console.warn("Local editor autosave disabled because browser storage quota is full.");
+    }, LOCAL_STORAGE_AUTOSAVE_DEBOUNCE_MS);
 
     return () => {
       window.clearTimeout(timer);
     };
-  }, [currentDoc, height, preset, width]);
+  }, [height, isHydrated, preset, projectScope, serializedCurrentDoc, width]);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    const storageKey = getDocStorageKey(projectScope, preset, width, height);
+    const payload = serializedCurrentDoc;
+    const timer = window.setTimeout(() => {
+      void writeEditorDocToIndexedDb(storageKey, payload).catch((error) => {
+        console.warn("IndexedDB design cache write failed.", error);
+      });
+    }, INDEXEDDB_AUTOSAVE_DEBOUNCE_MS);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [height, isHydrated, preset, projectScope, serializedCurrentDoc, width]);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(140deg,#f1f5f9_0%,#e2e8f0_35%,#f8fafc_100%)] p-2 pb-24 text-slate-900 sm:p-3 sm:pb-3">
@@ -1844,10 +2046,10 @@ function EditorPageContent() {
               + Add Page
             </button>
             <Link
-              href="/setup?pick=1"
+              href="/projects"
               className="inline-flex min-h-10 items-center rounded-lg border border-slate-300 px-3 py-2 text-xs font-medium hover:bg-slate-100 sm:text-sm"
             >
-              Change Page Size
+              Back to Projects
             </Link>
             <div className="relative" ref={downloadMenuRef}>
               <button
@@ -1963,6 +2165,37 @@ function EditorPageContent() {
             >
               Upload Font
             </button>
+            {canManageSelectedFont ? (
+              <div className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+                <span>Manage</span>
+                <input
+                  type="text"
+                  value={fontManageValue}
+                  onChange={(event) => setFontManageValue(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      renameSelectedUserFont();
+                    }
+                  }}
+                  className="w-28 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={renameSelectedUserFont}
+                  className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  onClick={removeSelectedUserFont}
+                  className="rounded border border-rose-300 bg-rose-50 px-1.5 py-0.5 text-[11px] font-medium text-rose-700 hover:bg-rose-100"
+                >
+                  Remove
+                </button>
+              </div>
+            ) : null}
             <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
               Size
               <input

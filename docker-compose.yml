@@ -33,6 +33,8 @@ services:
       - JWT_SECRET=your-secret-key-change-in-production
       - JWT_ALGORITHM=HS256
       - DEBUG=True
+      - ADMIN_EMAILS=admin@example.com
+      - CORS_ORIGINS=http://localhost:3000
     restart: unless-stopped
     depends_on:
       - postgres

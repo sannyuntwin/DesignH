@@ -23,4 +23,4 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             detail="Invalid token payload",
         )
     
-    return {"user_id": user_id, "email": payload.get("email")}
+    return {"user_id": user_id, "email": payload.get("email"), "is_admin": bool(payload.get("isAdmin"))}

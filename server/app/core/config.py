@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     
     # CORS
     CORS_ORIGINS: str = "http://localhost:3000,http://localhost:3001"
+    ADMIN_EMAILS: str = ""
 
     def cors_origins_list(self) -> list[str]:
         raw = (self.CORS_ORIGINS or "").strip()
@@ -53,6 +54,12 @@ class Settings(BaseSettings):
                 pass
 
         return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+    def admin_emails_set(self) -> set[str]:
+        raw = (self.ADMIN_EMAILS or "").strip()
+        if not raw:
+            return set()
+        return {email.strip().lower() for email in raw.split(",") if email.strip()}
     
     # File Upload
     MAX_FILE_SIZE: int = 10485760  # 10MB

@@ -17,7 +17,7 @@ export default function SignUpPage() {
 
   useEffect(() => {
     if (readAuthSession()) {
-      router.replace("/setup");
+      router.replace("/projects");
     }
   }, [router]);
 
@@ -35,9 +35,10 @@ export default function SignUpPage() {
         email: result.user.email,
         avatar: "https://www.gravatar.com/avatar/?d=mp",
         token: result.token,
+        isAdmin: Boolean(result.user.is_admin),
         signedInAt: new Date().toISOString(),
       });
-      router.push("/setup");
+      router.push("/projects");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Sign up failed");
     } finally {
@@ -53,9 +54,10 @@ export default function SignUpPage() {
       email: result.user.email,
       avatar: "https://www.gravatar.com/avatar/?d=mp",
       token: result.token,
+      isAdmin: Boolean(result.user.is_admin),
       signedInAt: new Date().toISOString(),
     });
-    router.push("/setup");
+    router.push("/projects");
   };
 
   return (

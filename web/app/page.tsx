@@ -12,7 +12,7 @@ export default function Home() {
 
   useEffect(() => {
     if (readAuthSession()) {
-      router.replace("/setup");
+      router.replace("/projects");
     }
   }, [router]);
 
@@ -24,9 +24,10 @@ export default function Home() {
       email: result.user.email,
       avatar: "https://www.gravatar.com/avatar/?d=mp",
       token: result.token,
+      isAdmin: Boolean(result.user.is_admin),
       signedInAt: new Date().toISOString(),
     });
-    router.push("/setup");
+    router.push("/projects");
   };
 
   return (
@@ -35,7 +36,7 @@ export default function Home() {
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Welcome</p>
         <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">Sign In To Start Designing</h1>
         <p className="mt-2 text-sm text-slate-600">
-          Create an account or sign in, then choose page size and design your content.
+          Create an account or sign in, create a project, then choose page size or a template.
         </p>
 
         <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2">

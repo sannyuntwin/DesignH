@@ -16,7 +16,7 @@ export default function SignInPage() {
 
   useEffect(() => {
     if (readAuthSession()) {
-      router.replace("/setup");
+      router.replace("/projects");
     }
   }, [router]);
 
@@ -34,9 +34,10 @@ export default function SignInPage() {
         email: result.user.email,
         avatar: "https://www.gravatar.com/avatar/?d=mp",
         token: result.token,
+        isAdmin: Boolean(result.user.is_admin),
         signedInAt: new Date().toISOString(),
       });
-      router.push("/setup");
+      router.push("/projects");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Sign in failed");
     } finally {
@@ -52,9 +53,10 @@ export default function SignInPage() {
       email: result.user.email,
       avatar: "https://www.gravatar.com/avatar/?d=mp",
       token: result.token,
+      isAdmin: Boolean(result.user.is_admin),
       signedInAt: new Date().toISOString(),
     });
-    router.push("/setup");
+    router.push("/projects");
   };
 
   return (
