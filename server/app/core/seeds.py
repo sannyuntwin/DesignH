@@ -13,15 +13,15 @@ async def seed_admin_user(db: AsyncSession):
     Seeds a default admin user if the database is empty.
     """
     try:
-        # Check if any users exist
-        result = await db.execute(select(User).limit(1))
-        any_user = result.scalar_one_or_none()
+        # Check if the specific admin email exists
+        admin_email = getattr(settings, "DEFAULT_ADMIN_EMAIL", "admin@example.com")
+        admin_password = getattr(settings, "DEFAULT_ADMIN_PASSWORD", "admin123")
+        
+        result = await db.execute(select(User).where(User.email == admin_email))
+        admin_user = result.scalar_one_or_none()
 
-        if not any_user:
-            admin_email = getattr(settings, "DEFAULT_ADMIN_EMAIL", "admin@example.com")
-            admin_password = getattr(settings, "DEFAULT_ADMIN_PASSWORD", "admin123")
-            
-            logger.info(f"Seeding default admin user: {admin_email}")
+        if not admin_user:
+            logger.info(f"Ensuring default admin user: {admin_email}")
             
             new_admin = User(
                 email=admin_email,
@@ -33,9 +33,15 @@ async def seed_admin_user(db: AsyncSession):
             
             db.add(new_admin)
             await db.commit()
-            logger.info("Admin user seeded successfully.")
+            logger.info("Admin user created successfully.")
         else:
-            logger.debug("Database not empty, skipping admin seeding.")
+            # Ensure they are actually an admin
+            if not admin_user.is_admin:
+                admin_user.is_admin = True
+                await db.commit()
+                logger.info(f"Promoted {admin_email} to admin.")
+            else:
+                logger.debug(f"Admin user {admin_email} already exists.")
             
     except Exception as e:
         logger.error(f"Error during admin seeding: {e}")
