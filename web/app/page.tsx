@@ -13,20 +13,17 @@ const birthdayMoments = [
   {
     title: "Candles ready",
     copy: "One wish, one deep breath, and a room full of people waiting for the smile after the first slice.",
-    image:
-      "https://images.pexels.com/photos/1729808/pexels-photo-1729808.jpeg?auto=compress&cs=tinysrgb&w=1200",
+    image: "/img/photo_6316772101070720689_y.jpg",
   },
   {
     title: "Tables full",
     copy: "Bright fruit, soft frosting, glittering drinks, and that happy little chaos that only birthdays get right.",
-    image:
-      "https://images.pexels.com/photos/587741/pexels-photo-587741.jpeg?auto=compress&cs=tinysrgb&w=1200",
+    image: "/img/photo_6316772101070720690_y.jpg",
   },
   {
     title: "Photos forever",
     copy: "The hug at the door, the laugh before the toast, the second everyone sings too loudly and means every word.",
-    image:
-      "https://images.pexels.com/photos/3171837/pexels-photo-3171837.jpeg?auto=compress&cs=tinysrgb&w=1200",
+    image: "/img/photo_6316772101070720693_y.jpg",
   },
 ];
 
@@ -75,8 +72,8 @@ export default function Home() {
     <main className="bg-[#fff6ef] text-[#23181f]">
       <section className="relative min-h-[82vh] overflow-hidden">
         <Image
-          src="https://images.pexels.com/photos/1395967/pexels-photo-1395967.jpeg?auto=compress&cs=tinysrgb&w=1600"
-          alt="Birthday cake with candles and decorations"
+          src="/img/photo_6278161912742745209_y.jpg"
+          alt="Miss Htet Htet Aung standing in front of framed artwork"
           fill
           priority
           sizes="100vw"
@@ -169,8 +166,8 @@ export default function Home() {
 
           <div className="overflow-hidden rounded-[8px] border border-white/18 bg-[#fff8f2] text-[#23181f] shadow-[0_18px_50px_rgba(0,0,0,0.18)]">
             <Image
-              src="https://images.pexels.com/photos/7180794/pexels-photo-7180794.jpeg?auto=compress&cs=tinysrgb&w=1200"
-              alt="Friends celebrating a birthday together"
+              src="/img/photo_6221955445266517722_y.jpg"
+              alt="Close portrait of Miss Htet Htet Aung"
               width={1200}
               height={800}
               className="h-56 w-full object-cover"
