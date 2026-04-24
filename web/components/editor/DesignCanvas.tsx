@@ -15,6 +15,18 @@ export type CanvasTextBox = {
   fontWeight?: "400" | "700";
   textAlign?: "left" | "center" | "right";
   color?: string;
+  letterSpacing?: number;
+  textTransform?: "none" | "uppercase" | "lowercase" | "capitalize";
+  strokeEnabled?: boolean;
+  strokeColor?: string;
+  strokeWidth?: number;
+  shadowEnabled?: boolean;
+  shadowColor?: string;
+  shadowBlur?: number;
+  shadowOffsetX?: number;
+  shadowOffsetY?: number;
+  curveEnabled?: boolean;
+  curveAmount?: number;
   rotation?: number;
   layer?: number;
 };
@@ -28,6 +40,22 @@ export type CanvasImageBox = {
   src: string;
   opacity?: number;
   rotation?: number;
+  cropScale?: number;
+  cropX?: number;
+  cropY?: number;
+  maintainAspectRatio?: boolean;
+  backgroundColor?: string;
+  backgroundImageSrc?: string;
+  backgroundImageOpacity?: number;
+  edgeSoftness?: number;
+  shadowEnabled?: boolean;
+  shadowColor?: string;
+  shadowBlur?: number;
+  shadowOffsetX?: number;
+  shadowOffsetY?: number;
+  outlineEnabled?: boolean;
+  outlineColor?: string;
+  outlineWidth?: number;
   layer?: number;
 };
 
@@ -102,6 +130,11 @@ type ResizeState = {
   y: number;
 };
 
+type ImageResizeState = ResizeState & {
+  lockAspectRatio?: boolean;
+  aspectRatio?: number;
+};
+
 type RotateState = {
   id: string;
   centerX: number;
@@ -114,6 +147,8 @@ const DEFAULT_FONT_FAMILY = "Arial";
 const DEFAULT_FONT_SIZE = 42;
 const DEFAULT_LINE_HEIGHT = 1.25;
 const DEFAULT_TEXT_COLOR = "#0f172a";
+const DEFAULT_TEXT_STROKE_COLOR = "#ffffff";
+const DEFAULT_TEXT_SHADOW_COLOR = "#000000";
 const DEFAULT_IMAGE_BOX_WIDTH = 280;
 const DEFAULT_IMAGE_BOX_HEIGHT = 180;
 const DEFAULT_SHAPE_BOX_WIDTH = 180;
@@ -121,6 +156,13 @@ const DEFAULT_SHAPE_BOX_HEIGHT = 180;
 const DEFAULT_SHAPE_FILL = "#38bdf8";
 const DEFAULT_SHAPE_GRADIENT_COLORS: readonly [string, string, string] = ["#38bdf8", "#22d3ee", "#818cf8"];
 const DEFAULT_SHAPE_STROKE = "#0f172a";
+const DEFAULT_IMAGE_BACKGROUND_COLOR = "";
+const DEFAULT_IMAGE_SHADOW_COLOR = "#000000";
+const DEFAULT_IMAGE_OUTLINE_COLOR = "#ffffff";
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
 
 function toFiniteNumber(value: number, fallback: number) {
   return Number.isFinite(value) ? value : fallback;
@@ -143,6 +185,65 @@ function normalizeAngle(value: number) {
   while (angle <= -180) angle += 360;
   while (angle > 180) angle -= 360;
   return Math.round(angle);
+}
+
+function normalizeTextTransform(value: string | undefined): "none" | "uppercase" | "lowercase" | "capitalize" {
+  if (value === "uppercase" || value === "lowercase" || value === "capitalize") return value;
+  return "none";
+}
+
+function applyTextTransform(value: string, mode: "none" | "uppercase" | "lowercase" | "capitalize") {
+  if (mode === "uppercase") return value.toUpperCase();
+  if (mode === "lowercase") return value.toLowerCase();
+  if (mode === "capitalize") {
+    return value.replace(/\b([a-z])/gi, (match) => match.toUpperCase());
+  }
+  return value;
+}
+
+function getTextShadowCss(box: CanvasTextBox) {
+  if (!box.shadowEnabled) return undefined;
+  const shadowColor = sanitizeHexColor(box.shadowColor, DEFAULT_TEXT_SHADOW_COLOR);
+  const shadowBlur = clamp(toFiniteNumber(box.shadowBlur ?? 0, 0), 0, 64);
+  const shadowOffsetX = clamp(toFiniteNumber(box.shadowOffsetX ?? 0, 0), -80, 80);
+  const shadowOffsetY = clamp(toFiniteNumber(box.shadowOffsetY ?? 0, 0), -80, 80);
+  return `${shadowOffsetX}px ${shadowOffsetY}px ${shadowBlur}px ${shadowColor}`;
+}
+
+function getImageFilterCss(image: CanvasImageBox) {
+  const filterParts: string[] = [];
+  const outlineEnabled = image.outlineEnabled === true;
+  const outlineWidth = clamp(toFiniteNumber(image.outlineWidth ?? 0, 0), 0, 20);
+  const outlineColor = sanitizeHexColor(image.outlineColor, DEFAULT_IMAGE_OUTLINE_COLOR);
+
+  if (outlineEnabled && outlineWidth > 0) {
+    const offset = Math.max(0.5, outlineWidth);
+    filterParts.push(`drop-shadow(${offset}px 0 0 ${outlineColor})`);
+    filterParts.push(`drop-shadow(${-offset}px 0 0 ${outlineColor})`);
+    filterParts.push(`drop-shadow(0 ${offset}px 0 ${outlineColor})`);
+    filterParts.push(`drop-shadow(0 ${-offset}px 0 ${outlineColor})`);
+    if (outlineWidth > 1.2) {
+      filterParts.push(`drop-shadow(${offset}px ${offset}px 0 ${outlineColor})`);
+      filterParts.push(`drop-shadow(${-offset}px ${offset}px 0 ${outlineColor})`);
+      filterParts.push(`drop-shadow(${offset}px ${-offset}px 0 ${outlineColor})`);
+      filterParts.push(`drop-shadow(${-offset}px ${-offset}px 0 ${outlineColor})`);
+    }
+  }
+
+  if (image.shadowEnabled) {
+    const shadowColor = sanitizeHexColor(image.shadowColor, DEFAULT_IMAGE_SHADOW_COLOR);
+    const shadowBlur = clamp(toFiniteNumber(image.shadowBlur ?? 0, 0), 0, 64);
+    const shadowOffsetX = clamp(toFiniteNumber(image.shadowOffsetX ?? 0, 0), -80, 80);
+    const shadowOffsetY = clamp(toFiniteNumber(image.shadowOffsetY ?? 0, 0), -80, 80);
+    filterParts.push(`drop-shadow(${shadowOffsetX}px ${shadowOffsetY}px ${shadowBlur}px ${shadowColor})`);
+  }
+
+  const edgeSoftness = clamp(toFiniteNumber(image.edgeSoftness ?? 0, 0), 0, 8);
+  if (edgeSoftness > 0) {
+    filterParts.push(`blur(${edgeSoftness}px)`);
+  }
+
+  return filterParts.length > 0 ? filterParts.join(" ") : undefined;
 }
 
 export default function DesignCanvas({
@@ -182,7 +283,7 @@ export default function DesignCanvas({
   const [resizeState, setResizeState] = useState<ResizeState | null>(null);
   const [rotateState, setRotateState] = useState<RotateState | null>(null);
   const [imageDragState, setImageDragState] = useState<DragState | null>(null);
-  const [imageResizeState, setImageResizeState] = useState<ResizeState | null>(null);
+  const [imageResizeState, setImageResizeState] = useState<ImageResizeState | null>(null);
   const [shapeDragState, setShapeDragState] = useState<DragState | null>(null);
   const [shapeResizeState, setShapeResizeState] = useState<ResizeState | null>(null);
   const [shapeRotateState, setShapeRotateState] = useState<RotateState | null>(null);
@@ -407,8 +508,37 @@ export default function DesignCanvas({
       const maxWidth = Math.max(MIN_WIDTH, width - imageResizeState.x);
       const maxHeight = Math.max(MIN_HEIGHT, height - imageResizeState.y);
 
-      const nextWidth = Math.max(MIN_WIDTH, Math.min(maxWidth, imageResizeState.startWidth + deltaX));
-      const nextHeight = Math.max(MIN_HEIGHT, Math.min(maxHeight, imageResizeState.startHeight + deltaY));
+      let nextWidth = Math.max(MIN_WIDTH, Math.min(maxWidth, imageResizeState.startWidth + deltaX));
+      let nextHeight = Math.max(MIN_HEIGHT, Math.min(maxHeight, imageResizeState.startHeight + deltaY));
+
+      if (imageResizeState.lockAspectRatio) {
+        const ratio = Math.max(0.01, toFiniteNumber(imageResizeState.aspectRatio ?? 1, 1));
+        const widthChange = Math.abs(deltaX) / Math.max(1, imageResizeState.startWidth);
+        const heightChange = Math.abs(deltaY) / Math.max(1, imageResizeState.startHeight);
+
+        if (widthChange >= heightChange) {
+          nextHeight = nextWidth / ratio;
+        } else {
+          nextWidth = nextHeight * ratio;
+        }
+
+        if (nextWidth > maxWidth) {
+          nextWidth = maxWidth;
+          nextHeight = nextWidth / ratio;
+        }
+        if (nextHeight > maxHeight) {
+          nextHeight = maxHeight;
+          nextWidth = nextHeight * ratio;
+        }
+        if (nextWidth < MIN_WIDTH) {
+          nextWidth = MIN_WIDTH;
+          nextHeight = nextWidth / ratio;
+        }
+        if (nextHeight < MIN_HEIGHT) {
+          nextHeight = MIN_HEIGHT;
+          nextWidth = nextHeight * ratio;
+        }
+      }
 
       onUpdateImageBox(imageResizeState.id, { width: nextWidth, height: nextHeight });
     };
@@ -614,13 +744,23 @@ export default function DesignCanvas({
         const imageHeight = Math.max(10, toFiniteNumber(image.height, DEFAULT_IMAGE_BOX_HEIGHT));
         const imageOpacity = Math.max(0, Math.min(1, toFiniteNumber(image.opacity ?? 1, 1)));
         const imageRotation = normalizeAngle(image.rotation ?? 0);
+        const cropScale = Math.max(1, toFiniteNumber(image.cropScale ?? 1, 1));
+        const cropX = clamp(toFiniteNumber(image.cropX ?? 0, 0), -100, 100);
+        const cropY = clamp(toFiniteNumber(image.cropY ?? 0, 0), -100, 100);
+        const overflowX = Math.max(0, (imageWidth * cropScale - imageWidth) / 2);
+        const overflowY = Math.max(0, (imageHeight * cropScale - imageHeight) / 2);
+        const croppedLeft = -overflowX + (cropX / 100) * overflowX;
+        const croppedTop = -overflowY + (cropY / 100) * overflowY;
+        const backgroundColor = sanitizeHexColor(image.backgroundColor, DEFAULT_IMAGE_BACKGROUND_COLOR);
+        const backgroundImageOpacity = clamp(toFiniteNumber(image.backgroundImageOpacity ?? 1, 1), 0, 1);
+        const imageFilter = getImageFilterCss(image);
         const isSelected = selectedImageId === image.id || selectedImageIds.includes(image.id);
 
         return (
           <div
             key={image.id}
             data-canvas-element="true"
-            className={`absolute overflow-hidden rounded ${
+            className={`absolute relative overflow-hidden rounded ${
               isSelected ? "outline outline-1 outline-sky-500/90 shadow-[0_0_0_1px_rgba(14,165,233,0.35)]" : ""
             } cursor-move select-none`}
             style={{
@@ -659,8 +799,31 @@ export default function DesignCanvas({
               });
             }}
           >
+            <div className="pointer-events-none absolute inset-0" style={{ backgroundColor }} />
+            {image.backgroundImageSrc ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={image.backgroundImageSrc}
+                alt=""
+                draggable={false}
+                className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+                style={{ opacity: backgroundImageOpacity }}
+              />
+            ) : null}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={image.src} alt="" draggable={false} className="pointer-events-none h-full w-full object-cover" />
+            <img
+              src={image.src}
+              alt=""
+              draggable={false}
+              className="pointer-events-none absolute max-w-none select-none"
+              style={{
+                left: croppedLeft,
+                top: croppedTop,
+                width: imageWidth * cropScale,
+                height: imageHeight * cropScale,
+                filter: imageFilter,
+              }}
+            />
 
             {isSelected && (
               <button
@@ -679,6 +842,8 @@ export default function DesignCanvas({
                     startHeight: imageHeight,
                     x: imageX,
                     y: imageY,
+                    lockAspectRatio: image.maintainAspectRatio === true,
+                    aspectRatio: Math.max(0.01, imageWidth / Math.max(1, imageHeight)),
                   });
                   setImageDragState(null);
                   setDragState(null);
@@ -876,12 +1041,21 @@ export default function DesignCanvas({
         const boxColor = box.color || DEFAULT_TEXT_COLOR;
         const boxWeight = box.fontWeight || "700";
         const boxAlign = box.textAlign || "left";
+        const boxLetterSpacing = clamp(toFiniteNumber(box.letterSpacing ?? 0, 0), -10, 60);
+        const boxTextTransform = normalizeTextTransform(box.textTransform);
+        const boxStrokeEnabled = box.strokeEnabled === true;
+        const boxStrokeColor = sanitizeHexColor(box.strokeColor, DEFAULT_TEXT_STROKE_COLOR);
+        const boxStrokeWidth = clamp(toFiniteNumber(box.strokeWidth ?? 0, 0), 0, 12);
+        const boxCurveEnabled = box.curveEnabled === true;
+        const boxCurveAmount = clamp(toFiniteNumber(box.curveAmount ?? 0, 0), -100, 100);
+        const textShadow = getTextShadowCss(box);
         const boxRotation = normalizeAngle(box.rotation ?? 0);
         const textLineHeight = Math.max(0.8, Math.min(3, toFiniteNumber(box.lineHeight ?? DEFAULT_LINE_HEIGHT, DEFAULT_LINE_HEIGHT)));
         const isSelected = selectedTextId === box.id || selectedTextIds.includes(box.id);
         const isEditing = editingId === box.id;
         const draft = isEditing && editingDraft?.id === box.id ? editingDraft : null;
         const renderedText = draft ? draft.text : box.text;
+        const transformedText = applyTextTransform(renderedText, boxTextTransform);
         const renderedHeight = draft ? Math.max(boxHeight, toFiniteNumber(draft.height, boxHeight)) : boxHeight;
 
         return (
@@ -956,23 +1130,59 @@ export default function DesignCanvas({
                   fontWeight: boxWeight,
                   textAlign: boxAlign,
                   color: boxColor,
+                  letterSpacing: `${boxLetterSpacing}px`,
+                  textTransform: boxTextTransform,
                 }}
                 autoFocus
               />
             ) : (
-              <span
-                className="block h-full whitespace-pre-wrap break-words"
-                style={{
-                  fontFamily: toFontFamilyCss(boxFontFamily),
-                  fontSize: boxFontSize,
-                  lineHeight: textLineHeight,
-                  fontWeight: boxWeight,
-                  textAlign: boxAlign,
-                  color: boxColor,
-                }}
-              >
-                {box.text || "Double-click to edit"}
-              </span>
+              boxCurveEnabled ? (
+                <svg className="pointer-events-none h-full w-full overflow-visible" viewBox={`0 0 ${boxWidth} ${renderedHeight}`} preserveAspectRatio="none">
+                  <defs>
+                    <path
+                      id={`curve-path-${box.id}`}
+                      d={`M 4 ${Math.max(boxFontSize + 2, renderedHeight * 0.55)} Q ${boxWidth / 2} ${
+                        Math.max(boxFontSize + 2, renderedHeight * 0.55) - boxCurveAmount * 0.5
+                      } ${Math.max(4, boxWidth - 4)} ${Math.max(boxFontSize + 2, renderedHeight * 0.55)}`}
+                    />
+                  </defs>
+                  <text
+                    fill={boxColor}
+                    fontFamily={boxFontFamily}
+                    fontSize={boxFontSize}
+                    fontWeight={boxWeight}
+                    letterSpacing={boxLetterSpacing}
+                    textAnchor={boxAlign === "left" ? "start" : boxAlign === "center" ? "middle" : "end"}
+                    stroke={boxStrokeEnabled && boxStrokeWidth > 0 ? boxStrokeColor : "none"}
+                    strokeWidth={boxStrokeEnabled ? boxStrokeWidth : 0}
+                    paintOrder="stroke fill"
+                    style={{ filter: textShadow ? `drop-shadow(${textShadow})` : undefined }}
+                  >
+                    <textPath href={`#curve-path-${box.id}`} startOffset={boxAlign === "left" ? "0%" : boxAlign === "center" ? "50%" : "100%"}>
+                      {(transformedText || "Double-click to edit").replace(/\r?\n+/g, " ")}
+                    </textPath>
+                  </text>
+                </svg>
+              ) : (
+                <span
+                  className="block h-full whitespace-pre-wrap break-words"
+                  style={{
+                    fontFamily: toFontFamilyCss(boxFontFamily),
+                    fontSize: boxFontSize,
+                    lineHeight: textLineHeight,
+                    fontWeight: boxWeight,
+                    textAlign: boxAlign,
+                    color: boxColor,
+                    letterSpacing: `${boxLetterSpacing}px`,
+                    textTransform: boxTextTransform,
+                    WebkitTextStrokeWidth: boxStrokeEnabled ? `${boxStrokeWidth}px` : undefined,
+                    WebkitTextStrokeColor: boxStrokeEnabled ? boxStrokeColor : undefined,
+                    textShadow,
+                  }}
+                >
+                  {transformedText || "Double-click to edit"}
+                </span>
+              )
             )}
 
             {isSelected && !isEditing && (

@@ -43,6 +43,11 @@ const INDEXEDDB_AUTOSAVE_DEBOUNCE_MS = 600;
 const DEFAULT_GRADIENT_COLORS = ["#f8fafc", "#e2e8f0", "#cbd5e1"] as const;
 const DEFAULT_BORDER_GRADIENT_COLORS = ["#0f172a", "#475569", "#0f172a"] as const;
 const DEFAULT_SHAPE_GRADIENT_COLORS = ["#38bdf8", "#22d3ee", "#818cf8"] as const;
+const DEFAULT_IMAGE_BACKGROUND_COLOR = "";
+const DEFAULT_IMAGE_SHADOW_COLOR = "#000000";
+const DEFAULT_IMAGE_OUTLINE_COLOR = "#ffffff";
+const DEFAULT_TEXT_STROKE_COLOR = "#ffffff";
+const DEFAULT_TEXT_SHADOW_COLOR = "#000000";
 const SHAPE_KIND_OPTIONS: readonly CanvasShapeKind[] = ["square", "circle", "triangle"];
 const BASE_FONT_FAMILY_OPTIONS = [
   "Arial",
@@ -278,6 +283,65 @@ function getBorderGradientCss(page: {
   return `linear-gradient(${direction}, ${start} 0%, ${middle} 50%, ${end} 100%)`;
 }
 
+function getImageEffectFilterCss(image: CanvasImageBox) {
+  const parts: string[] = [];
+  const outlineEnabled = image.outlineEnabled === true;
+  const outlineWidth = clamp(toSafeNumber(image.outlineWidth ?? 0, 0), 0, 20);
+  const outlineColor = sanitizeHexColor(image.outlineColor, DEFAULT_IMAGE_OUTLINE_COLOR);
+
+  if (outlineEnabled && outlineWidth > 0) {
+    const offset = Math.max(0.5, outlineWidth);
+    parts.push(`drop-shadow(${offset}px 0 0 ${outlineColor})`);
+    parts.push(`drop-shadow(${-offset}px 0 0 ${outlineColor})`);
+    parts.push(`drop-shadow(0 ${offset}px 0 ${outlineColor})`);
+    parts.push(`drop-shadow(0 ${-offset}px 0 ${outlineColor})`);
+    if (outlineWidth > 1.2) {
+      parts.push(`drop-shadow(${offset}px ${offset}px 0 ${outlineColor})`);
+      parts.push(`drop-shadow(${-offset}px ${offset}px 0 ${outlineColor})`);
+      parts.push(`drop-shadow(${offset}px ${-offset}px 0 ${outlineColor})`);
+      parts.push(`drop-shadow(${-offset}px ${-offset}px 0 ${outlineColor})`);
+    }
+  }
+
+  if (image.shadowEnabled) {
+    const shadowColor = sanitizeHexColor(image.shadowColor, DEFAULT_IMAGE_SHADOW_COLOR);
+    const shadowBlur = clamp(toSafeNumber(image.shadowBlur ?? 0, 0), 0, 64);
+    const shadowOffsetX = clamp(toSafeNumber(image.shadowOffsetX ?? 0, 0), -80, 80);
+    const shadowOffsetY = clamp(toSafeNumber(image.shadowOffsetY ?? 0, 0), -80, 80);
+    parts.push(`drop-shadow(${shadowOffsetX}px ${shadowOffsetY}px ${shadowBlur}px ${shadowColor})`);
+  }
+
+  const edgeSoftness = clamp(toSafeNumber(image.edgeSoftness ?? 0, 0), 0, 8);
+  if (edgeSoftness > 0) {
+    parts.push(`blur(${edgeSoftness}px)`);
+  }
+
+  return parts.length > 0 ? parts.join(" ") : undefined;
+}
+
+function normalizeTextTransform(value: string | undefined): "none" | "uppercase" | "lowercase" | "capitalize" {
+  if (value === "uppercase" || value === "lowercase" || value === "capitalize") return value;
+  return "none";
+}
+
+function applyTextTransform(value: string, mode: "none" | "uppercase" | "lowercase" | "capitalize") {
+  if (mode === "uppercase") return value.toUpperCase();
+  if (mode === "lowercase") return value.toLowerCase();
+  if (mode === "capitalize") {
+    return value.replace(/\b([a-z])/gi, (match) => match.toUpperCase());
+  }
+  return value;
+}
+
+function getTextShadowCss(box: CanvasTextBox) {
+  if (!box.shadowEnabled) return undefined;
+  const shadowColor = sanitizeHexColor(box.shadowColor, DEFAULT_TEXT_SHADOW_COLOR);
+  const shadowBlur = clamp(toSafeNumber(box.shadowBlur ?? 0, 0), 0, 64);
+  const shadowOffsetX = clamp(toSafeNumber(box.shadowOffsetX ?? 0, 0), -80, 80);
+  const shadowOffsetY = clamp(toSafeNumber(box.shadowOffsetY ?? 0, 0), -80, 80);
+  return `${shadowOffsetX}px ${shadowOffsetY}px ${shadowBlur}px ${shadowColor}`;
+}
+
 function sanitizeTextBox(input: Partial<CanvasTextBox>, fallbackLayer: number): CanvasTextBox {
   const fontWeight = input.fontWeight === "400" || input.fontWeight === "700" ? input.fontWeight : "700";
   const fontFamily =
@@ -289,6 +353,7 @@ function sanitizeTextBox(input: Partial<CanvasTextBox>, fallbackLayer: number): 
     input.textAlign === "left" || input.textAlign === "center" || input.textAlign === "right"
       ? input.textAlign
       : "left";
+  const textTransform = normalizeTextTransform(input.textTransform);
 
   return {
     id: typeof input.id === "string" ? input.id : createTextId(),
@@ -303,6 +368,18 @@ function sanitizeTextBox(input: Partial<CanvasTextBox>, fallbackLayer: number): 
     fontWeight,
     textAlign,
     color: typeof input.color === "string" ? input.color : "#0f172a",
+    letterSpacing: clamp(toSafeNumber(input.letterSpacing ?? 0, 0), -10, 60),
+    textTransform,
+    strokeEnabled: input.strokeEnabled === true,
+    strokeColor: sanitizeHexColor(input.strokeColor, DEFAULT_TEXT_STROKE_COLOR),
+    strokeWidth: clamp(toSafeNumber(input.strokeWidth ?? 0, 0), 0, 12),
+    shadowEnabled: input.shadowEnabled === true,
+    shadowColor: sanitizeHexColor(input.shadowColor, DEFAULT_TEXT_SHADOW_COLOR),
+    shadowBlur: clamp(toSafeNumber(input.shadowBlur ?? 0, 0), 0, 64),
+    shadowOffsetX: clamp(toSafeNumber(input.shadowOffsetX ?? 0, 0), -80, 80),
+    shadowOffsetY: clamp(toSafeNumber(input.shadowOffsetY ?? 0, 0), -80, 80),
+    curveEnabled: input.curveEnabled === true,
+    curveAmount: clamp(toSafeNumber(input.curveAmount ?? 0, 0), -100, 100),
     rotation: clamp(toSafeNumber(input.rotation, 0), -180, 180),
     layer: clamp(Math.round(toSafeNumber(input.layer ?? fallbackLayer, fallbackLayer)), 1, 100000),
   };
@@ -318,6 +395,22 @@ function sanitizeImageBox(input: Partial<CanvasImageBox>, fallbackLayer: number)
     src: typeof input.src === "string" ? input.src : "",
     opacity: clamp(toSafeNumber(input.opacity ?? 1, 1), 0, 1),
     rotation: clamp(toSafeNumber(input.rotation ?? 0, 0), -180, 180),
+    cropScale: clamp(toSafeNumber(input.cropScale ?? 1, 1), 1, 6),
+    cropX: clamp(toSafeNumber(input.cropX ?? 0, 0), -100, 100),
+    cropY: clamp(toSafeNumber(input.cropY ?? 0, 0), -100, 100),
+    maintainAspectRatio: input.maintainAspectRatio === true,
+    backgroundColor: sanitizeHexColor(input.backgroundColor, DEFAULT_IMAGE_BACKGROUND_COLOR),
+    backgroundImageSrc: typeof input.backgroundImageSrc === "string" ? input.backgroundImageSrc : "",
+    backgroundImageOpacity: clamp(toSafeNumber(input.backgroundImageOpacity ?? 1, 1), 0, 1),
+    edgeSoftness: clamp(toSafeNumber(input.edgeSoftness ?? 0, 0), 0, 8),
+    shadowEnabled: input.shadowEnabled === true,
+    shadowColor: sanitizeHexColor(input.shadowColor, DEFAULT_IMAGE_SHADOW_COLOR),
+    shadowBlur: clamp(toSafeNumber(input.shadowBlur ?? 0, 0), 0, 64),
+    shadowOffsetX: clamp(toSafeNumber(input.shadowOffsetX ?? 0, 0), -80, 80),
+    shadowOffsetY: clamp(toSafeNumber(input.shadowOffsetY ?? 0, 0), -80, 80),
+    outlineEnabled: input.outlineEnabled === true,
+    outlineColor: sanitizeHexColor(input.outlineColor, DEFAULT_IMAGE_OUTLINE_COLOR),
+    outlineWidth: clamp(toSafeNumber(input.outlineWidth ?? 0, 0), 0, 20),
     layer: clamp(Math.round(toSafeNumber(input.layer ?? fallbackLayer, fallbackLayer)), 1, 100000),
   };
 }
@@ -593,6 +686,7 @@ function EditorPageContent() {
   const [fontInputValue, setFontInputValue] = useState("");
   const [fontManageValue, setFontManageValue] = useState("");
   const [isExporting, setIsExporting] = useState(false);
+  const [isRemovingImageBackground, setIsRemovingImageBackground] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [, setCloudSyncError] = useState<string | null>(null);
   const [cloudDesignId, setCloudDesignId] = useState<string | null>(null);
@@ -603,6 +697,7 @@ function EditorPageContent() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const imageBackgroundInputRef = useRef<HTMLInputElement>(null);
   const fontUploadInputRef = useRef<HTMLInputElement>(null);
   const downloadMenuRef = useRef<HTMLDivElement>(null);
   const canvasViewportRef = useRef<HTMLDivElement>(null);
@@ -1026,6 +1121,18 @@ function EditorPageContent() {
       fontWeight: "700",
       textAlign: "left",
       color: "#0f172a",
+      letterSpacing: 0,
+      textTransform: "none",
+      strokeEnabled: false,
+      strokeColor: DEFAULT_TEXT_STROKE_COLOR,
+      strokeWidth: 0,
+      shadowEnabled: false,
+      shadowColor: DEFAULT_TEXT_SHADOW_COLOR,
+      shadowBlur: 0,
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      curveEnabled: false,
+      curveAmount: 0,
       rotation: 0,
       layer: max + 1,
     };
@@ -1091,6 +1198,22 @@ function EditorPageContent() {
       src,
       opacity: 1,
       rotation: 0,
+      cropScale: 1,
+      cropX: 0,
+      cropY: 0,
+      maintainAspectRatio: false,
+      backgroundColor: DEFAULT_IMAGE_BACKGROUND_COLOR,
+      backgroundImageSrc: "",
+      backgroundImageOpacity: 1,
+      edgeSoftness: 0,
+      shadowEnabled: false,
+      shadowColor: DEFAULT_IMAGE_SHADOW_COLOR,
+      shadowBlur: 0,
+      shadowOffsetX: 0,
+      shadowOffsetY: 0,
+      outlineEnabled: false,
+      outlineColor: DEFAULT_IMAGE_OUTLINE_COLOR,
+      outlineWidth: 0,
       layer: max + 1,
     };
 
@@ -1130,6 +1253,38 @@ function EditorPageContent() {
     }
   };
 
+  const handleImageBackgroundInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.currentTarget.value = "";
+    if (!file || !file.type.startsWith("image/") || !selectedImageBox) return;
+
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+        reader.onerror = () => reject(new Error("Unable to read background image file."));
+        reader.readAsDataURL(file);
+      });
+
+      if (!dataUrl) {
+        throw new Error("Background image is empty.");
+      }
+
+      updateSelectedImageBox({ backgroundImageSrc: dataUrl, backgroundImageOpacity: 1 });
+    } catch {
+      setExportError("Unable to set image background.");
+    }
+  };
+
+  const blobToDataUrl = useCallback((blob: Blob) => {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+      reader.onerror = () => reject(new Error("Unable to read processed image."));
+      reader.readAsDataURL(blob);
+    });
+  }, []);
+
   const updateImageBox = (imageId: string, updates: Partial<CanvasImageBox>) => {
     if (Object.keys(updates).length === 0) return;
 
@@ -1156,6 +1311,37 @@ function EditorPageContent() {
   const updateSelectedImageBox = (updates: Partial<CanvasImageBox>) => {
     if (!selectedImageBox) return;
     updateImageBox(selectedImageBox.id, updates);
+  };
+
+  const handleRemoveSelectedImageBackground = async () => {
+    if (!selectedImageBox || isRemovingImageBackground) return;
+
+    try {
+      setIsRemovingImageBackground(true);
+      setExportError(null);
+
+      const { removeBackground } = await import("@imgly/background-removal");
+      const removedBackgroundBlob = await removeBackground(selectedImageBox.src, {
+        model: "isnet_fp16",
+        proxyToWorker: false,
+        output: {
+          format: "image/png",
+          quality: 1,
+        },
+      });
+      const nextSrc = await blobToDataUrl(removedBackgroundBlob);
+
+      if (!nextSrc) {
+        throw new Error("Background removal returned an empty image.");
+      }
+
+      updateSelectedImageBox({ src: nextSrc });
+    } catch (error) {
+      console.error("Background removal failed:", error);
+      setExportError(error instanceof Error ? error.message : "Unable to remove image background.");
+    } finally {
+      setIsRemovingImageBackground(false);
+    }
   };
 
   const updateShapeBox = (shapeId: string, updates: Partial<CanvasShapeBox>) => {
@@ -2023,6 +2209,13 @@ function EditorPageContent() {
               className="hidden"
               onChange={handleImageInputChange}
             />
+            <input
+              ref={imageBackgroundInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleImageBackgroundInputChange}
+            />
             <button
               type="button"
               onClick={() => imageInputRef.current?.click()}
@@ -2226,6 +2419,35 @@ function EditorPageContent() {
                 className="w-14 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
               />
             </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Space
+              <input
+                type="number"
+                min={-10}
+                max={60}
+                step={0.1}
+                value={visibleSelectedTextBox.letterSpacing ?? 0}
+                onChange={(event) => {
+                  const value = Number.parseFloat(event.target.value);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedTextBox({ letterSpacing: Math.max(-10, Math.min(60, value)) });
+                }}
+                className="w-14 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
+              />
+            </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Case
+              <select
+                value={normalizeTextTransform(visibleSelectedTextBox.textTransform)}
+                onChange={(event) => updateSelectedTextBox({ textTransform: normalizeTextTransform(event.target.value) })}
+                className="rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
+              >
+                <option value="none">None</option>
+                <option value="uppercase">UPPER</option>
+                <option value="lowercase">lower</option>
+                <option value="capitalize">Cap</option>
+              </select>
+            </label>
             <button
               type="button"
               onClick={() =>
@@ -2265,6 +2487,138 @@ function EditorPageContent() {
                 value={visibleSelectedTextBox.color || "#0f172a"}
                 onChange={(event) => updateSelectedTextBox({ color: event.target.value })}
                 className="h-7 w-8 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => updateSelectedTextBox({ curveEnabled: !(visibleSelectedTextBox.curveEnabled === true) })}
+              className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${
+                visibleSelectedTextBox.curveEnabled
+                  ? "border-sky-400 bg-sky-50 text-sky-700"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Curve {visibleSelectedTextBox.curveEnabled ? "On" : "Off"}
+            </button>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Curve Amt
+              <input
+                type="range"
+                min={-100}
+                max={100}
+                step={1}
+                value={Math.round(visibleSelectedTextBox.curveAmount ?? 0)}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedTextBox({ curveAmount: Math.max(-100, Math.min(100, value)) });
+                }}
+                className="w-20 accent-sky-600"
+                disabled={!visibleSelectedTextBox.curveEnabled}
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => updateSelectedTextBox({ strokeEnabled: !(visibleSelectedTextBox.strokeEnabled === true) })}
+              className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${
+                visibleSelectedTextBox.strokeEnabled
+                  ? "border-sky-400 bg-sky-50 text-sky-700"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Stroke {visibleSelectedTextBox.strokeEnabled ? "On" : "Off"}
+            </button>
+            <label className="shrink-0 flex items-center gap-1 text-xs text-slate-600">
+              Stroke
+              <input
+                type="color"
+                value={visibleSelectedTextBox.strokeColor || DEFAULT_TEXT_STROKE_COLOR}
+                onChange={(event) => updateSelectedTextBox({ strokeColor: event.target.value })}
+                className="h-7 w-8 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+              />
+            </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Stroke W
+              <input
+                type="range"
+                min={0}
+                max={12}
+                step={0.5}
+                value={visibleSelectedTextBox.strokeWidth ?? 0}
+                onChange={(event) => {
+                  const value = Number.parseFloat(event.target.value);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedTextBox({ strokeWidth: Math.max(0, Math.min(12, value)) });
+                }}
+                className="w-20 accent-sky-600"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => updateSelectedTextBox({ shadowEnabled: !(visibleSelectedTextBox.shadowEnabled === true) })}
+              className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${
+                visibleSelectedTextBox.shadowEnabled
+                  ? "border-sky-400 bg-sky-50 text-sky-700"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Shadow {visibleSelectedTextBox.shadowEnabled ? "On" : "Off"}
+            </button>
+            <label className="shrink-0 flex items-center gap-1 text-xs text-slate-600">
+              Shadow
+              <input
+                type="color"
+                value={visibleSelectedTextBox.shadowColor || DEFAULT_TEXT_SHADOW_COLOR}
+                onChange={(event) => updateSelectedTextBox({ shadowColor: event.target.value })}
+                className="h-7 w-8 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+              />
+            </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Blur
+              <input
+                type="range"
+                min={0}
+                max={64}
+                step={1}
+                value={Math.round(visibleSelectedTextBox.shadowBlur ?? 0)}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedTextBox({ shadowBlur: Math.max(0, Math.min(64, value)) });
+                }}
+                className="w-20 accent-sky-600"
+              />
+            </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              SX
+              <input
+                type="number"
+                min={-80}
+                max={80}
+                step={1}
+                value={Math.round(visibleSelectedTextBox.shadowOffsetX ?? 0)}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedTextBox({ shadowOffsetX: Math.max(-80, Math.min(80, value)) });
+                }}
+                className="w-12 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
+              />
+            </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              SY
+              <input
+                type="number"
+                min={-80}
+                max={80}
+                step={1}
+                value={Math.round(visibleSelectedTextBox.shadowOffsetY ?? 0)}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedTextBox({ shadowOffsetY: Math.max(-80, Math.min(80, value)) });
+                }}
+                className="w-12 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
               />
             </label>
             <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
@@ -2333,7 +2687,13 @@ function EditorPageContent() {
                 onChange={(event) => {
                   const value = Number.parseInt(event.target.value, 10);
                   if (!Number.isFinite(value)) return;
-                  updateSelectedImageBox({ width: Math.max(40, Math.min(5000, value)) });
+                  const clamped = Math.max(40, Math.min(5000, value));
+                  if (visibleSelectedImageBox.maintainAspectRatio) {
+                    const ratio = Math.max(0.01, visibleSelectedImageBox.width / Math.max(1, visibleSelectedImageBox.height));
+                    updateSelectedImageBox({ width: clamped, height: Math.max(40, Math.min(5000, Math.round(clamped / ratio))) });
+                    return;
+                  }
+                  updateSelectedImageBox({ width: clamped });
                 }}
                 className="w-16 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
               />
@@ -2348,11 +2708,28 @@ function EditorPageContent() {
                 onChange={(event) => {
                   const value = Number.parseInt(event.target.value, 10);
                   if (!Number.isFinite(value)) return;
-                  updateSelectedImageBox({ height: Math.max(40, Math.min(5000, value)) });
+                  const clamped = Math.max(40, Math.min(5000, value));
+                  if (visibleSelectedImageBox.maintainAspectRatio) {
+                    const ratio = Math.max(0.01, visibleSelectedImageBox.width / Math.max(1, visibleSelectedImageBox.height));
+                    updateSelectedImageBox({ height: clamped, width: Math.max(40, Math.min(5000, Math.round(clamped * ratio))) });
+                    return;
+                  }
+                  updateSelectedImageBox({ height: clamped });
                 }}
                 className="w-16 rounded border border-slate-300 bg-white px-1 py-0.5 text-xs"
               />
             </label>
+            <button
+              type="button"
+              onClick={() => updateSelectedImageBox({ maintainAspectRatio: !(visibleSelectedImageBox.maintainAspectRatio === true) })}
+              className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${
+                visibleSelectedImageBox.maintainAspectRatio
+                  ? "border-sky-400 bg-sky-50 text-sky-700"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Aspect {visibleSelectedImageBox.maintainAspectRatio ? "Locked" : "Free"}
+            </button>
             <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
               Opacity
               <input
@@ -2369,9 +2746,208 @@ function EditorPageContent() {
                 }}
                 className="w-20 accent-sky-600"
               />
-              <span className="w-8 text-right text-[10px] text-slate-500">
-                {Math.round((visibleSelectedImageBox.opacity ?? 1) * 100)}%
-              </span>
+              <span className="w-8 text-right text-[10px] text-slate-500">{Math.round((visibleSelectedImageBox.opacity ?? 1) * 100)}%</span>
+            </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Crop
+              <input
+                type="range"
+                min={100}
+                max={600}
+                step={1}
+                value={Math.round((visibleSelectedImageBox.cropScale ?? 1) * 100)}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedImageBox({ cropScale: Math.max(1, Math.min(6, value / 100)) });
+                }}
+                className="w-20 accent-sky-600"
+              />
+              <span className="w-8 text-right text-[10px] text-slate-500">{Math.round((visibleSelectedImageBox.cropScale ?? 1) * 100)}%</span>
+            </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              X
+              <input
+                type="range"
+                min={-100}
+                max={100}
+                step={1}
+                value={Math.round(visibleSelectedImageBox.cropX ?? 0)}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedImageBox({ cropX: Math.max(-100, Math.min(100, value)) });
+                }}
+                className="w-16 accent-sky-600"
+              />
+            </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Y
+              <input
+                type="range"
+                min={-100}
+                max={100}
+                step={1}
+                value={Math.round(visibleSelectedImageBox.cropY ?? 0)}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedImageBox({ cropY: Math.max(-100, Math.min(100, value)) });
+                }}
+                className="w-16 accent-sky-600"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => updateSelectedImageBox({ cropScale: 1, cropX: 0, cropY: 0 })}
+              className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Reset Crop
+            </button>
+            <label className="shrink-0 flex items-center gap-1 text-xs text-slate-600">
+              BG
+              <input
+                type="color"
+                value={visibleSelectedImageBox.backgroundColor || "#ffffff"}
+                onChange={(event) => updateSelectedImageBox({ backgroundColor: event.target.value })}
+                className="h-7 w-8 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => updateSelectedImageBox({ backgroundColor: "" })}
+              disabled={!visibleSelectedImageBox.backgroundColor}
+              className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Clear BG Color
+            </button>
+            <button
+              type="button"
+              onClick={() => imageBackgroundInputRef.current?.click()}
+              className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+            >
+              BG Image
+            </button>
+            <button
+              type="button"
+              onClick={() => updateSelectedImageBox({ backgroundImageSrc: "" })}
+              disabled={!visibleSelectedImageBox.backgroundImageSrc}
+              className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Clear BG Image
+            </button>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              BG Opacity
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={Math.round((visibleSelectedImageBox.backgroundImageOpacity ?? 1) * 100)}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedImageBox({ backgroundImageOpacity: Math.max(0, Math.min(1, value / 100)) });
+                }}
+                disabled={!visibleSelectedImageBox.backgroundImageSrc}
+                className="w-16 accent-sky-600 disabled:opacity-50"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={handleRemoveSelectedImageBackground}
+              disabled={isRemovingImageBackground}
+              className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isRemovingImageBackground ? "Removing BG..." : "Remove BG"}
+            </button>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Edge
+              <input
+                type="range"
+                min={0}
+                max={8}
+                step={0.1}
+                value={visibleSelectedImageBox.edgeSoftness ?? 0}
+                onChange={(event) => {
+                  const value = Number.parseFloat(event.target.value);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedImageBox({ edgeSoftness: Math.max(0, Math.min(8, value)) });
+                }}
+                className="w-16 accent-sky-600"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => updateSelectedImageBox({ shadowEnabled: !(visibleSelectedImageBox.shadowEnabled === true) })}
+              className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${
+                visibleSelectedImageBox.shadowEnabled
+                  ? "border-sky-400 bg-sky-50 text-sky-700"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Shadow {visibleSelectedImageBox.shadowEnabled ? "On" : "Off"}
+            </button>
+            <label className="shrink-0 flex items-center gap-1 text-xs text-slate-600">
+              Shadow Color
+              <input
+                type="color"
+                value={visibleSelectedImageBox.shadowColor || DEFAULT_IMAGE_SHADOW_COLOR}
+                onChange={(event) => updateSelectedImageBox({ shadowColor: event.target.value })}
+                className="h-7 w-8 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+              />
+            </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Shadow Blur
+              <input
+                type="range"
+                min={0}
+                max={64}
+                step={1}
+                value={Math.round(visibleSelectedImageBox.shadowBlur ?? 0)}
+                onChange={(event) => {
+                  const value = Number.parseInt(event.target.value, 10);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedImageBox({ shadowBlur: Math.max(0, Math.min(64, value)) });
+                }}
+                className="w-16 accent-sky-600"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => updateSelectedImageBox({ outlineEnabled: !(visibleSelectedImageBox.outlineEnabled === true) })}
+              className={`shrink-0 rounded-md border px-2 py-1 text-xs font-medium ${
+                visibleSelectedImageBox.outlineEnabled
+                  ? "border-sky-400 bg-sky-50 text-sky-700"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Outline {visibleSelectedImageBox.outlineEnabled ? "On" : "Off"}
+            </button>
+            <label className="shrink-0 flex items-center gap-1 text-xs text-slate-600">
+              Outline Color
+              <input
+                type="color"
+                value={visibleSelectedImageBox.outlineColor || DEFAULT_IMAGE_OUTLINE_COLOR}
+                onChange={(event) => updateSelectedImageBox({ outlineColor: event.target.value })}
+                className="h-7 w-8 cursor-pointer rounded border border-slate-300 bg-white p-0.5"
+              />
+            </label>
+            <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
+              Outline Size
+              <input
+                type="range"
+                min={0}
+                max={20}
+                step={0.5}
+                value={visibleSelectedImageBox.outlineWidth ?? 0}
+                onChange={(event) => {
+                  const value = Number.parseFloat(event.target.value);
+                  if (!Number.isFinite(value)) return;
+                  updateSelectedImageBox({ outlineWidth: Math.max(0, Math.min(20, value)) });
+                }}
+                className="w-16 accent-sky-600"
+              />
             </label>
             <label className="shrink-0 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs">
               Rotate
@@ -2962,11 +3538,21 @@ function EditorPageContent() {
                             const previewHeight = Math.max(2, toSafeNumber(image.height, 180) * thumbScale);
                             const previewOpacity = clamp(toSafeNumber(image.opacity ?? 1, 1), 0, 1);
                             const previewRotation = clamp(toSafeNumber(image.rotation ?? 0, 0), -180, 180);
+                            const cropScale = Math.max(1, toSafeNumber(image.cropScale ?? 1, 1));
+                            const cropX = clamp(toSafeNumber(image.cropX ?? 0, 0), -100, 100);
+                            const cropY = clamp(toSafeNumber(image.cropY ?? 0, 0), -100, 100);
+                            const overflowX = Math.max(0, (previewWidth * cropScale - previewWidth) / 2);
+                            const overflowY = Math.max(0, (previewHeight * cropScale - previewHeight) / 2);
+                            const croppedLeft = -overflowX + (cropX / 100) * overflowX;
+                            const croppedTop = -overflowY + (cropY / 100) * overflowY;
+                            const imageFilter = getImageEffectFilterCss(image);
+                            const backgroundColor = sanitizeHexColor(image.backgroundColor, DEFAULT_IMAGE_BACKGROUND_COLOR);
+                            const backgroundImageOpacity = clamp(toSafeNumber(image.backgroundImageOpacity ?? 1, 1), 0, 1);
 
                             return (
                               <span
                                 key={image.id}
-                                className="pointer-events-none absolute block overflow-hidden rounded"
+                                className="pointer-events-none absolute block overflow-hidden rounded relative"
                                 style={{
                                   left: previewX,
                                   top: previewY,
@@ -2978,8 +3564,29 @@ function EditorPageContent() {
                                   zIndex: Math.round(toSafeNumber(image.layer ?? 0, 0)),
                                 }}
                               >
+                                <span className="absolute inset-0" style={{ backgroundColor }} />
+                                {image.backgroundImageSrc ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={image.backgroundImageSrc}
+                                    alt=""
+                                    className="absolute inset-0 h-full w-full object-cover"
+                                    style={{ opacity: backgroundImageOpacity }}
+                                  />
+                                ) : null}
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img src={image.src} alt="" className="h-full w-full object-cover" />
+                                <img
+                                  src={image.src}
+                                  alt=""
+                                  className="absolute max-w-none"
+                                  style={{
+                                    left: croppedLeft,
+                                    top: croppedTop,
+                                    width: previewWidth * cropScale,
+                                    height: previewHeight * cropScale,
+                                    filter: imageFilter,
+                                  }}
+                                />
                               </span>
                             );
                           })}
@@ -3078,6 +3685,63 @@ function EditorPageContent() {
                             const previewHeight = Math.max(2, toSafeNumber(box.height, 90) * thumbScale);
                             const previewFontSize = Math.max(2, toSafeNumber(box.fontSize ?? 42, 42) * thumbScale);
                             const previewRotation = clamp(toSafeNumber(box.rotation ?? 0, 0), -180, 180);
+                            const previewLetterSpacing = clamp(toSafeNumber(box.letterSpacing ?? 0, 0), -10, 60) * thumbScale;
+                            const previewTransform = normalizeTextTransform(box.textTransform);
+                            const previewStrokeEnabled = box.strokeEnabled === true;
+                            const previewStrokeWidth = clamp(toSafeNumber(box.strokeWidth ?? 0, 0), 0, 12) * thumbScale;
+                            const previewStrokeColor = sanitizeHexColor(box.strokeColor, DEFAULT_TEXT_STROKE_COLOR);
+                            const previewShadow = getTextShadowCss(box);
+                            const previewCurveEnabled = box.curveEnabled === true;
+                            const previewCurveAmount = clamp(toSafeNumber(box.curveAmount ?? 0, 0), -100, 100);
+                            const previewText = applyTextTransform(box.text || "Double-click to edit", previewTransform);
+
+                            if (previewCurveEnabled) {
+                              return (
+                                <span
+                                  key={box.id}
+                                  className="absolute block"
+                                  style={{
+                                    left: previewX,
+                                    top: previewY,
+                                    width: previewWidth,
+                                    height: previewHeight,
+                                    transform: `rotate(${previewRotation}deg)`,
+                                    transformOrigin: "center center",
+                                    zIndex: Math.round(toSafeNumber(box.layer ?? 0, 0)),
+                                  }}
+                                >
+                                  <svg className="h-full w-full overflow-visible" viewBox={`0 0 ${previewWidth} ${previewHeight}`} preserveAspectRatio="none">
+                                    <defs>
+                                      <path
+                                        id={`thumb-curve-path-${box.id}`}
+                                        d={`M 2 ${Math.max(previewFontSize + 1, previewHeight * 0.55)} Q ${previewWidth / 2} ${
+                                          Math.max(previewFontSize + 1, previewHeight * 0.55) - previewCurveAmount * 0.25 * thumbScale
+                                        } ${Math.max(2, previewWidth - 2)} ${Math.max(previewFontSize + 1, previewHeight * 0.55)}`}
+                                      />
+                                    </defs>
+                                    <text
+                                      fill={box.color || "#0f172a"}
+                                      fontFamily={box.fontFamily || FONT_FAMILY_OPTIONS[0]}
+                                      fontSize={previewFontSize}
+                                      fontWeight={box.fontWeight || "700"}
+                                      letterSpacing={previewLetterSpacing}
+                                      textAnchor={(box.textAlign || "left") === "left" ? "start" : (box.textAlign || "left") === "center" ? "middle" : "end"}
+                                      stroke={previewStrokeEnabled && previewStrokeWidth > 0 ? previewStrokeColor : "none"}
+                                      strokeWidth={previewStrokeEnabled ? previewStrokeWidth : 0}
+                                      paintOrder="stroke fill"
+                                      style={{ filter: previewShadow ? `drop-shadow(${previewShadow})` : undefined }}
+                                    >
+                                      <textPath
+                                        href={`#thumb-curve-path-${box.id}`}
+                                        startOffset={(box.textAlign || "left") === "left" ? "0%" : (box.textAlign || "left") === "center" ? "50%" : "100%"}
+                                      >
+                                        {previewText.replace(/\r?\n+/g, " ")}
+                                      </textPath>
+                                    </text>
+                                  </svg>
+                                </span>
+                              );
+                            }
 
                             return (
                               <span
@@ -3100,10 +3764,15 @@ function EditorPageContent() {
                                     0.8,
                                     3,
                                   ),
+                                  letterSpacing: `${previewLetterSpacing}px`,
+                                  textTransform: previewTransform,
+                                  WebkitTextStrokeWidth: previewStrokeEnabled ? `${previewStrokeWidth}px` : undefined,
+                                  WebkitTextStrokeColor: previewStrokeEnabled ? previewStrokeColor : undefined,
+                                  textShadow: previewShadow,
                                   zIndex: Math.round(toSafeNumber(box.layer ?? 0, 0)),
                                 }}
                               >
-                                {box.text || "Double-click to edit"}
+                                {previewText}
                               </span>
                             );
                           })}

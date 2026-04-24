@@ -19,6 +19,11 @@ export type ExportDesignPage = {
 
 type ImageExportFormat = "png" | "jpg";
 const DEFAULT_TEXT_LINE_HEIGHT = 1.25;
+const DEFAULT_IMAGE_BACKGROUND_COLOR = "";
+const DEFAULT_IMAGE_SHADOW_COLOR = "#000000";
+const DEFAULT_IMAGE_OUTLINE_COLOR = "#ffffff";
+const DEFAULT_TEXT_STROKE_COLOR = "#ffffff";
+const DEFAULT_TEXT_SHADOW_COLOR = "#000000";
 
 function normalizeNumber(value: number, fallback: number) {
   return Number.isFinite(value) ? value : fallback;
@@ -28,6 +33,10 @@ function sanitizeHexColor(value: unknown, fallback: string) {
   if (typeof value !== "string") return fallback;
   const trimmed = value.trim();
   return /^#(?:[0-9a-fA-F]{3}){1,2}$/.test(trimmed) ? trimmed : fallback;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }
 
 function escapeFontFamily(value: string) {
@@ -77,19 +86,182 @@ function getCoverSourceRect(sourceWidth: number, sourceHeight: number, targetWid
   return { sx: 0, sy, sw: sourceWidth, sh };
 }
 
-function roundedRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, radius: number) {
-  const safeRadius = Math.max(0, Math.min(radius, width / 2, height / 2));
-  ctx.beginPath();
-  ctx.moveTo(x + safeRadius, y);
-  ctx.lineTo(x + width - safeRadius, y);
-  ctx.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
-  ctx.lineTo(x + width, y + height - safeRadius);
-  ctx.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
-  ctx.lineTo(x + safeRadius, y + height);
-  ctx.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
-  ctx.lineTo(x, y + safeRadius);
-  ctx.quadraticCurveTo(x, y, x + safeRadius, y);
-  ctx.closePath();
+function getImageSourceRectWithCrop(
+  sourceWidth: number,
+  sourceHeight: number,
+  targetWidth: number,
+  targetHeight: number,
+  cropScale: number,
+  cropX: number,
+  cropY: number,
+) {
+  const base = getCoverSourceRect(sourceWidth, sourceHeight, targetWidth, targetHeight);
+  const safeScale = clamp(cropScale, 1, 6);
+  const normalizedX = clamp(cropX, -100, 100) / 100;
+  const normalizedY = clamp(cropY, -100, 100) / 100;
+  const zoomedWidth = Math.max(1, base.sw / safeScale);
+  const zoomedHeight = Math.max(1, base.sh / safeScale);
+  const shiftRangeX = Math.max(0, (base.sw - zoomedWidth) / 2);
+  const shiftRangeY = Math.max(0, (base.sh - zoomedHeight) / 2);
+  const centerX = base.sx + base.sw / 2 - normalizedX * shiftRangeX;
+  const centerY = base.sy + base.sh / 2 - normalizedY * shiftRangeY;
+  const minSx = base.sx;
+  const maxSx = base.sx + base.sw - zoomedWidth;
+  const minSy = base.sy;
+  const maxSy = base.sy + base.sh - zoomedHeight;
+  const sx = clamp(centerX - zoomedWidth / 2, minSx, maxSx);
+  const sy = clamp(centerY - zoomedHeight / 2, minSy, maxSy);
+  return {
+    sx,
+    sy,
+    sw: zoomedWidth,
+    sh: zoomedHeight,
+  };
+}
+
+function getImageFilterCss(image: CanvasImageBox) {
+  const filterParts: string[] = [];
+  const outlineEnabled = image.outlineEnabled === true;
+  const outlineWidth = clamp(normalizeNumber(image.outlineWidth ?? 0, 0), 0, 20);
+  const outlineColor = sanitizeHexColor(image.outlineColor, DEFAULT_IMAGE_OUTLINE_COLOR);
+
+  if (outlineEnabled && outlineWidth > 0) {
+    const offset = Math.max(0.5, outlineWidth);
+    filterParts.push(`drop-shadow(${offset}px 0 0 ${outlineColor})`);
+    filterParts.push(`drop-shadow(${-offset}px 0 0 ${outlineColor})`);
+    filterParts.push(`drop-shadow(0 ${offset}px 0 ${outlineColor})`);
+    filterParts.push(`drop-shadow(0 ${-offset}px 0 ${outlineColor})`);
+    if (outlineWidth > 1.2) {
+      filterParts.push(`drop-shadow(${offset}px ${offset}px 0 ${outlineColor})`);
+      filterParts.push(`drop-shadow(${-offset}px ${offset}px 0 ${outlineColor})`);
+      filterParts.push(`drop-shadow(${offset}px ${-offset}px 0 ${outlineColor})`);
+      filterParts.push(`drop-shadow(${-offset}px ${-offset}px 0 ${outlineColor})`);
+    }
+  }
+
+  if (image.shadowEnabled) {
+    const shadowColor = sanitizeHexColor(image.shadowColor, DEFAULT_IMAGE_SHADOW_COLOR);
+    const shadowBlur = clamp(normalizeNumber(image.shadowBlur ?? 0, 0), 0, 64);
+    const shadowOffsetX = clamp(normalizeNumber(image.shadowOffsetX ?? 0, 0), -80, 80);
+    const shadowOffsetY = clamp(normalizeNumber(image.shadowOffsetY ?? 0, 0), -80, 80);
+    filterParts.push(`drop-shadow(${shadowOffsetX}px ${shadowOffsetY}px ${shadowBlur}px ${shadowColor})`);
+  }
+
+  const edgeSoftness = clamp(normalizeNumber(image.edgeSoftness ?? 0, 0), 0, 8);
+  if (edgeSoftness > 0) {
+    filterParts.push(`blur(${edgeSoftness}px)`);
+  }
+
+  return filterParts.length > 0 ? filterParts.join(" ") : "none";
+}
+
+function normalizeTextTransform(value: string | undefined): "none" | "uppercase" | "lowercase" | "capitalize" {
+  if (value === "uppercase" || value === "lowercase" || value === "capitalize") return value;
+  return "none";
+}
+
+function applyTextTransform(value: string, mode: "none" | "uppercase" | "lowercase" | "capitalize") {
+  if (mode === "uppercase") return value.toUpperCase();
+  if (mode === "lowercase") return value.toLowerCase();
+  if (mode === "capitalize") {
+    return value.replace(/\b([a-z])/gi, (match) => match.toUpperCase());
+  }
+  return value;
+}
+
+function measureTextWidthWithLetterSpacing(ctx: CanvasRenderingContext2D, text: string, letterSpacing: number) {
+  const chars = Array.from(text || "");
+  if (chars.length === 0) return 0;
+  let width = 0;
+  for (const char of chars) {
+    width += ctx.measureText(char).width;
+  }
+  width += letterSpacing * Math.max(0, chars.length - 1);
+  return width;
+}
+
+function drawTextLineWithLetterSpacing(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  align: "left" | "center" | "right",
+  boxWidth: number,
+  letterSpacing: number,
+  strokeEnabled: boolean,
+  strokeColor: string,
+  strokeWidth: number,
+) {
+  const chars = Array.from(text || "");
+  if (!chars.length) return;
+
+  const lineWidth = measureTextWidthWithLetterSpacing(ctx, text, letterSpacing);
+  let startX = x;
+  if (align === "center") {
+    startX = (boxWidth - lineWidth) / 2;
+  } else if (align === "right") {
+    startX = boxWidth - lineWidth;
+  }
+
+  let penX = startX;
+  for (const char of chars) {
+    if (strokeEnabled && strokeWidth > 0) {
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = strokeWidth;
+      ctx.strokeText(char, penX, y);
+    }
+    ctx.fillText(char, penX, y);
+    penX += ctx.measureText(char).width + letterSpacing;
+  }
+}
+
+function drawCurvedTextLine(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  baselineY: number,
+  boxWidth: number,
+  curveAmount: number,
+  letterSpacing: number,
+  align: "left" | "center" | "right",
+  strokeEnabled: boolean,
+  strokeColor: string,
+  strokeWidth: number,
+) {
+  const chars = Array.from(text || "");
+  if (!chars.length) return;
+  const lineWidth = measureTextWidthWithLetterSpacing(ctx, text, letterSpacing);
+
+  let startX = 0;
+  if (align === "center") {
+    startX = (boxWidth - lineWidth) / 2;
+  } else if (align === "right") {
+    startX = boxWidth - lineWidth;
+  }
+
+  const amplitude = curveAmount * 0.5;
+  let penX = startX;
+  for (const char of chars) {
+    const charWidth = ctx.measureText(char).width;
+    const centerX = penX + charWidth / 2;
+    const t = (centerX - boxWidth / 2) / Math.max(1, boxWidth / 2);
+    const y = baselineY - amplitude * (1 - t * t);
+    const slope = (4 * amplitude * t) / Math.max(1, boxWidth);
+    const angle = Math.atan(slope);
+
+    ctx.save();
+    ctx.translate(centerX, y);
+    ctx.rotate(angle);
+
+    if (strokeEnabled && strokeWidth > 0) {
+      ctx.strokeStyle = strokeColor;
+      ctx.lineWidth = strokeWidth;
+      ctx.strokeText(char, -charWidth / 2, 0);
+    }
+    ctx.fillText(char, -charWidth / 2, 0);
+    ctx.restore();
+
+    penX += charWidth + letterSpacing;
+  }
 }
 
 function wrapTextLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number) {
@@ -232,6 +404,12 @@ async function renderPageToCanvas(page: ExportDesignPage) {
       const imageHeight = Math.max(1, normalizeNumber(imageBox.height, 180));
       const imageOpacity = Math.max(0, Math.min(1, normalizeNumber(imageBox.opacity ?? 1, 1)));
       const imageRotation = normalizeNumber(imageBox.rotation ?? 0, 0);
+      const imageCropScale = clamp(normalizeNumber(imageBox.cropScale ?? 1, 1), 1, 6);
+      const imageCropX = clamp(normalizeNumber(imageBox.cropX ?? 0, 0), -100, 100);
+      const imageCropY = clamp(normalizeNumber(imageBox.cropY ?? 0, 0), -100, 100);
+      const imageBackgroundColor = sanitizeHexColor(imageBox.backgroundColor, DEFAULT_IMAGE_BACKGROUND_COLOR);
+      const imageBackgroundOpacity = Math.max(0, Math.min(1, normalizeNumber(imageBox.backgroundImageOpacity ?? 1, 1)));
+      const imageFilter = getImageFilterCss(imageBox);
 
       try {
         const image = await loadImage(imageBox.src);
@@ -239,23 +417,51 @@ async function renderPageToCanvas(page: ExportDesignPage) {
         ctx.globalAlpha = imageOpacity;
         ctx.translate(imageX + imageWidth / 2, imageY + imageHeight / 2);
         ctx.rotate((imageRotation * Math.PI) / 180);
+        if (imageBackgroundColor) {
+          ctx.fillStyle = imageBackgroundColor;
+          ctx.fillRect(-imageWidth / 2, -imageHeight / 2, imageWidth, imageHeight);
+        }
 
-        // Match the editor's object-cover rendering and rounded image corners.
-        const sourceRect = getCoverSourceRect(image.naturalWidth || image.width, image.naturalHeight || image.height, imageWidth, imageHeight);
-        const destinationBleed = 0.75;
-        roundedRectPath(ctx, -imageWidth / 2, -imageHeight / 2, imageWidth, imageHeight, 4);
-        ctx.clip();
-        ctx.drawImage(
-          image,
-          sourceRect.sx,
-          sourceRect.sy,
-          sourceRect.sw,
-          sourceRect.sh,
-          -imageWidth / 2 - destinationBleed,
-          -imageHeight / 2 - destinationBleed,
-          imageWidth + destinationBleed * 2,
-          imageHeight + destinationBleed * 2,
+        if (imageBox.backgroundImageSrc) {
+          try {
+            const backgroundImage = await loadImage(imageBox.backgroundImageSrc);
+            const backgroundRect = getCoverSourceRect(
+              backgroundImage.naturalWidth || backgroundImage.width,
+              backgroundImage.naturalHeight || backgroundImage.height,
+              imageWidth,
+              imageHeight,
+            );
+            const originalAlpha = ctx.globalAlpha;
+            ctx.globalAlpha = originalAlpha * imageBackgroundOpacity;
+            ctx.drawImage(
+              backgroundImage,
+              backgroundRect.sx,
+              backgroundRect.sy,
+              backgroundRect.sw,
+              backgroundRect.sh,
+              -imageWidth / 2,
+              -imageHeight / 2,
+              imageWidth,
+              imageHeight,
+            );
+            ctx.globalAlpha = originalAlpha;
+          } catch {
+            // Ignore missing/invalid background image and continue with foreground render.
+          }
+        }
+
+        const sourceRect = getImageSourceRectWithCrop(
+          image.naturalWidth || image.width,
+          image.naturalHeight || image.height,
+          imageWidth,
+          imageHeight,
+          imageCropScale,
+          imageCropX,
+          imageCropY,
         );
+        ctx.filter = imageFilter;
+        ctx.drawImage(image, sourceRect.sx, sourceRect.sy, sourceRect.sw, sourceRect.sh, -imageWidth / 2, -imageHeight / 2, imageWidth, imageHeight);
+        ctx.filter = "none";
         ctx.restore();
       } catch {
         // Skip broken image sources during export instead of failing the whole file.
@@ -347,6 +553,18 @@ async function renderPageToCanvas(page: ExportDesignPage) {
     const fontFamily = box.fontFamily || "Arial";
     const color = box.color || "#0f172a";
     const align = box.textAlign || "left";
+    const letterSpacing = clamp(normalizeNumber(box.letterSpacing ?? 0, 0), -10, 60);
+    const textTransform = normalizeTextTransform(box.textTransform);
+    const strokeEnabled = box.strokeEnabled === true;
+    const strokeColor = sanitizeHexColor(box.strokeColor, DEFAULT_TEXT_STROKE_COLOR);
+    const strokeWidth = clamp(normalizeNumber(box.strokeWidth ?? 0, 0), 0, 12);
+    const shadowEnabled = box.shadowEnabled === true;
+    const shadowColor = sanitizeHexColor(box.shadowColor, DEFAULT_TEXT_SHADOW_COLOR);
+    const shadowBlur = clamp(normalizeNumber(box.shadowBlur ?? 0, 0), 0, 64);
+    const shadowOffsetX = clamp(normalizeNumber(box.shadowOffsetX ?? 0, 0), -80, 80);
+    const shadowOffsetY = clamp(normalizeNumber(box.shadowOffsetY ?? 0, 0), -80, 80);
+    const curveEnabled = box.curveEnabled === true;
+    const curveAmount = clamp(normalizeNumber(box.curveAmount ?? 0, 0), -100, 100);
     const rotation = normalizeNumber(box.rotation ?? 0, 0);
     const lineHeightMultiplier = Math.max(
       0.8,
@@ -364,16 +582,53 @@ async function renderPageToCanvas(page: ExportDesignPage) {
     ctx.font = `${fontWeight} ${fontSize}px "${escapeFontFamily(fontFamily)}", Arial, sans-serif`;
     ctx.textBaseline = "top";
     ctx.textAlign = align;
+    ctx.shadowColor = shadowEnabled ? shadowColor : "transparent";
+    ctx.shadowBlur = shadowEnabled ? shadowBlur : 0;
+    ctx.shadowOffsetX = shadowEnabled ? shadowOffsetX : 0;
+    ctx.shadowOffsetY = shadowEnabled ? shadowOffsetY : 0;
 
     const maxLines = Math.max(1, Math.floor(Math.max(lineHeight, boxHeight - topLeading) / lineHeight));
-    const rawText = box.text || "";
+    const rawText = applyTextTransform(box.text || "", textTransform);
     const lines = (containsMyanmarText(rawText) ? rawText.split(/\r?\n/) : wrapTextLines(ctx, rawText, boxWidth)).slice(0, maxLines);
     const textX = align === "left" ? 0 : align === "center" ? boxWidth / 2 : boxWidth;
 
     lines.forEach((line, index) => {
-      ctx.fillText(line, textX, topLeading + index * lineHeight);
+      const y = topLeading + index * lineHeight;
+      if (curveEnabled) {
+        const curveLine = line.replace(/\r?\n+/g, " ");
+        drawCurvedTextLine(
+          ctx,
+          curveLine,
+          y + fontSize,
+          boxWidth,
+          curveAmount,
+          letterSpacing,
+          align,
+          strokeEnabled,
+          strokeColor,
+          strokeWidth,
+        );
+        return;
+      }
+
+      drawTextLineWithLetterSpacing(
+        ctx,
+        line,
+        textX,
+        y,
+        align,
+        boxWidth,
+        letterSpacing,
+        strokeEnabled,
+        strokeColor,
+        strokeWidth,
+      );
     });
 
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
     ctx.restore();
   }
 
