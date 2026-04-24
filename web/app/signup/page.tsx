@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { ArrowLeft, Gift, PartyPopper, Sparkles } from "lucide-react";
+import { ArrowLeft, Gift, Sparkles, Users } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -12,18 +12,18 @@ import { readAuthSession, saveAuthSession } from "@/lib/auth-session";
 const signUpMoments = [
   {
     icon: Gift,
-    title: "Save the plans",
-    copy: "Keep every detail together before the first guest walks through the door.",
+    title: "Set up quickly",
+    copy: "Create your account and start organizing work in just a few steps.",
   },
   {
     icon: Sparkles,
-    title: "Set the mood",
-    copy: "Colors, notes, and ideas stay ready for the moment the celebration starts.",
+    title: "Stay organized",
+    copy: "Keep ideas, notes, and project updates together from day one.",
   },
   {
-    icon: PartyPopper,
-    title: "Share the joy",
-    copy: "Bring more people into the room and let the birthday feel bigger than ever.",
+    icon: Users,
+    title: "Collaborate smoothly",
+    copy: "Invite teammates and keep everyone aligned as work moves forward.",
   },
 ];
 
@@ -85,7 +85,7 @@ export default function SignUpPage() {
       <section className="relative min-h-screen overflow-hidden">
         <Image
           src="https://images.pexels.com/photos/1857157/pexels-photo-1857157.jpeg?auto=compress&cs=tinysrgb&w=1600"
-          alt="Birthday balloons and decorations"
+          alt="Decorative lights and modern workspace atmosphere"
           fill
           priority
           sizes="100vw"
@@ -98,7 +98,7 @@ export default function SignUpPage() {
             <section className="w-full max-w-xl overflow-hidden rounded-[8px] border border-white/18 bg-[#fff8f2] text-[#23181f] shadow-[0_24px_60px_rgba(0,0,0,0.22)]">
               <Image
                 src="https://images.pexels.com/photos/7100323/pexels-photo-7100323.jpeg?auto=compress&cs=tinysrgb&w=1400"
-                alt="Birthday decorations with balloons and cake"
+                alt="Decorative workspace details"
                 width={1400}
                 height={900}
                 className="h-52 w-full object-cover sm:h-60"
@@ -110,9 +110,9 @@ export default function SignUpPage() {
                   <p className="text-xs font-semibold uppercase tracking-[0.2em]">Create account</p>
                 </div>
 
-                <h1 className="mt-3 text-2xl font-semibold sm:text-3xl">Join the birthday celebration.</h1>
+                <h1 className="mt-3 text-2xl font-semibold sm:text-3xl">Create your workspace account.</h1>
                 <p className="mt-2 text-sm leading-6 text-[#624753]">
-                  Start with your name, save the setup, and keep every joyful detail ready for Miss Htet Htet Aung.
+                  Start with your name, save your setup, and keep every project detail ready from the first login.
                 </p>
 
                 <form className="mt-6 space-y-3" onSubmit={handleSignUp}>
@@ -154,7 +154,7 @@ export default function SignUpPage() {
                     disabled={isSubmitting}
                     className="w-full rounded-[8px] bg-[#ff5d73] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#ff7083] disabled:cursor-not-allowed disabled:bg-[#f3a0aa]"
                   >
-                    {isSubmitting ? "Wrapping your invite..." : "Create account"}
+                    {isSubmitting ? "Creating your account..." : "Create account"}
                   </button>
                 </form>
 
@@ -176,7 +176,7 @@ export default function SignUpPage() {
 
           <div className="order-1 flex flex-col justify-between text-white lg:order-2">
             <div className="flex items-center justify-between gap-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#ffe27d]">Birthday Sign Up</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#ffe27d]">Workspace Sign Up</p>
               <Link
                 href="/"
                 className="inline-flex items-center gap-2 rounded-[8px] border border-white/30 bg-white/10 px-3 py-2 text-sm font-semibold backdrop-blur-sm transition hover:bg-white/16"
@@ -188,15 +188,15 @@ export default function SignUpPage() {
 
             <div className="max-w-2xl py-10 lg:py-16">
               <div className="flex flex-wrap items-center gap-3 text-sm font-semibold text-[#ffe27d]">
-                <span className="rounded-[8px] border border-white/20 bg-black/20 px-3 py-1.5 backdrop-blur-sm">Happy birthday</span>
-                <span className="rounded-[8px] border border-white/20 bg-black/20 px-3 py-1.5 backdrop-blur-sm">Miss Htet Htet Aung</span>
+                <span className="rounded-[8px] border border-white/20 bg-black/20 px-3 py-1.5 backdrop-blur-sm">Team-ready setup</span>
+                <span className="rounded-[8px] border border-white/20 bg-black/20 px-3 py-1.5 backdrop-blur-sm">Secure onboarding</span>
               </div>
 
               <h2 className="mt-6 max-w-xl text-4xl font-semibold leading-tight sm:text-5xl lg:text-6xl">
-                Come in with confetti energy.
+                Build your account and get started fast.
               </h2>
               <p className="mt-4 max-w-xl text-base leading-7 text-white/86 sm:text-lg">
-                Make your account, save your plans, and step into a birthday theme built to feel warm, bright, and unforgettable.
+                Create your account, save your plans, and step into a focused workspace built for everyday progress.
               </p>
 
               <div className="mt-8 grid gap-4 sm:grid-cols-3">
@@ -211,7 +211,7 @@ export default function SignUpPage() {
             </div>
 
             <div className="hidden text-sm text-white/82 lg:block">
-              Every good birthday starts with one name on the guest list and a room full of intention.
+              Strong projects begin with clear setup, shared goals, and consistent communication.
             </div>
           </div>
         </div>

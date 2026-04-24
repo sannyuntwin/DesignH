@@ -1480,7 +1480,6 @@ function EditorPageContent() {
     if (!isHydrated) return;
 
     const pageNumber = Math.max(1, pages.findIndex((page) => page.id === activePage.id) + 1);
-    const designCanvasElement = document.getElementById("design-canvas") as HTMLElement | null;
 
     try {
       setIsExporting(true);
@@ -1495,7 +1494,7 @@ function EditorPageContent() {
           window.requestAnimationFrame(() => resolve());
         });
       });
-      await exportDesignAsImage(activePage, format, `${filenameBase}-page-${pageNumber}`, designCanvasElement);
+      await exportDesignAsImage(activePage, format, `${filenameBase}-page-${pageNumber}`);
     } catch (error) {
       console.error("Image export failed:", error);
       setExportError(error instanceof Error ? error.message : "Unable to export image.");

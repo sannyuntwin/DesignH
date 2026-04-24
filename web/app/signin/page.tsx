@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { ArrowLeft, CakeSlice, Sparkles, Stars } from "lucide-react";
+import { ArrowLeft, ShieldCheck, Sparkles, Stars } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -10,9 +10,9 @@ import { loginWithGoogleIdToken, loginWithPassword } from "@/lib/auth-api";
 import { readAuthSession, saveAuthSession } from "@/lib/auth-session";
 
 const signInNotes = [
-  "Candles lit and waiting",
-  "Playlist ready for the chorus",
-  "One click back to the celebration",
+  "Access your saved projects",
+  "Pick up right where you left off",
+  "Keep your team in sync",
 ];
 
 export default function SignInPage() {
@@ -72,7 +72,7 @@ export default function SignInPage() {
       <section className="relative min-h-screen overflow-hidden">
         <Image
           src="https://images.pexels.com/photos/796606/pexels-photo-796606.jpeg?auto=compress&cs=tinysrgb&w=1600"
-          alt="Birthday party table with cake and warm lights"
+          alt="Workspace table with warm lights"
           fill
           priority
           sizes="100vw"
@@ -90,20 +90,20 @@ export default function SignInPage() {
                 <ArrowLeft className="h-4 w-4" />
                 Back home
               </Link>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#ffe27d]">Birthday Sign In</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[#ffe27d]">Workspace Sign In</p>
             </div>
 
             <div className="max-w-2xl py-10 lg:py-16">
               <div className="flex flex-wrap items-center gap-3 text-sm font-semibold text-[#ffe27d]">
-                <span className="rounded-[8px] border border-white/20 bg-black/20 px-3 py-1.5 backdrop-blur-sm">Miss Htet Htet Aung</span>
-                <span className="rounded-[8px] border border-white/20 bg-black/20 px-3 py-1.5 backdrop-blur-sm">Birthday Night</span>
+                <span className="rounded-[8px] border border-white/20 bg-black/20 px-3 py-1.5 backdrop-blur-sm">Secure access</span>
+                <span className="rounded-[8px] border border-white/20 bg-black/20 px-3 py-1.5 backdrop-blur-sm">Fast return</span>
               </div>
 
               <h1 className="mt-6 max-w-xl text-4xl font-semibold leading-tight sm:text-5xl lg:text-6xl">
-                Sign back in before the candles melt.
+                Sign back in and continue your work.
               </h1>
               <p className="mt-4 max-w-xl text-base leading-7 text-white/86 sm:text-lg">
-                Happy birthday to you, Miss Htet Htet Aung. The cake is set, the lights are warm, and the celebration is waiting for you.
+                Your projects, notes, and team updates are ready whenever you are.
               </p>
 
               <div className="mt-8 grid gap-3 sm:grid-cols-3">
@@ -117,8 +117,8 @@ export default function SignInPage() {
             </div>
 
             <div className="hidden items-center gap-3 pb-2 text-sm text-white/82 lg:flex">
-              <CakeSlice className="h-4 w-4 text-[#ffe27d]" />
-              <span>One more song, one more photo, one more slice.</span>
+              <ShieldCheck className="h-4 w-4 text-[#ffe27d]" />
+              <span>Focused flow, clear updates, steady delivery.</span>
             </div>
           </div>
 
@@ -126,7 +126,7 @@ export default function SignInPage() {
             <section className="w-full max-w-xl overflow-hidden rounded-[8px] border border-white/18 bg-[#fff8f2] text-[#23181f] shadow-[0_24px_60px_rgba(0,0,0,0.22)]">
               <Image
                 src="https://images.pexels.com/photos/1729796/pexels-photo-1729796.jpeg?auto=compress&cs=tinysrgb&w=1400"
-                alt="Birthday cake close-up with candles"
+                alt="Close-up workspace details"
                 width={1400}
                 height={900}
                 className="h-52 w-full object-cover sm:h-60"
@@ -138,9 +138,9 @@ export default function SignInPage() {
                   <p className="text-xs font-semibold uppercase tracking-[0.2em]">Welcome back</p>
                 </div>
 
-                <h2 className="mt-3 text-2xl font-semibold sm:text-3xl">Sign in to continue the birthday story.</h2>
+                <h2 className="mt-3 text-2xl font-semibold sm:text-3xl">Sign in to continue your workflow.</h2>
                 <p className="mt-2 text-sm leading-6 text-[#624753]">
-                  Pick up the plans, the messages, and every bright little detail you already saved.
+                  Pick up your plans, messages, and every project detail you already saved.
                 </p>
 
                 <form className="mt-6 space-y-3" onSubmit={handleSignIn}>
@@ -171,7 +171,7 @@ export default function SignInPage() {
                     disabled={isSubmitting}
                     className="w-full rounded-[8px] bg-[#ff5d73] px-4 py-3 text-sm font-semibold text-white transition hover:bg-[#ff7083] disabled:cursor-not-allowed disabled:bg-[#f3a0aa]"
                   >
-                    {isSubmitting ? "Opening the party..." : "Sign in"}
+                    {isSubmitting ? "Signing you in..." : "Sign in"}
                   </button>
                 </form>
 
@@ -190,7 +190,7 @@ export default function SignInPage() {
                   </p>
                   <div className="inline-flex items-center gap-2 text-sm font-medium text-[#f05a5a]">
                     <Stars className="h-4 w-4" />
-                    <span>Keep the celebration glowing</span>
+                    <span>Keep the momentum going</span>
                   </div>
                 </div>
               </div>
